@@ -218,3 +218,22 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------- C++ / CMake ----------
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+*.o
+*.a
+
+# ---------- Project data & secrets ----------
+data/raw/*
+!data/raw/.gitkeep
+kaggle.json
+
+# ---------- Editors / OS / WSL ----------
+.vscode/
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
