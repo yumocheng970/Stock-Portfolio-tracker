@@ -1,6 +1,8 @@
 -- =====================================================================
 -- Paper-Trading Portfolio Tracker  (CS 5200, Yumo Cheng)
--- Schema tests for 01_reference_tables.sql and 02_portfolio_tables.sql
+-- Schema tests for 01_reference_tables.sql and 02_portfolio_tables.sql,
+-- plus programmability/01_trade_validation.sql (trigger)
+-- Rebuild first if needed: psql portfolio_tracker -f db/reset.sql
 -- Run: psql portfolio_tracker -q -f db/tests/test_schema.sql
 -- Everything runs in one transaction that is ROLLED BACK at the end,
 -- so the database is left unchanged.
@@ -309,9 +311,11 @@ SELECT pg_temp.expect_error('trade: fractional shares (INTEGER column)',
     $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
         VALUES (pg_temp.pf('Alice Growth'), 'AAPL', 'BUY', '1.5', 185, '2024-01-02') $q$,
     '22P02');
+-- Weekend date on purpose: on a trading day the BEFORE trigger runs
+-- first and reports trg_trade_price_in_range instead (tested below).
 SELECT pg_temp.expect_error('trade: price = 0',
     $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
-        VALUES (pg_temp.pf('Alice Growth'), 'AAPL', 'BUY', 1, 0, '2024-01-02') $q$,
+        VALUES (pg_temp.pf('Alice Growth'), 'AAPL', 'BUY', 1, 0, '2024-01-06') $q$,
     'chk_trade_price');
 SELECT pg_temp.expect_error('trade: unknown portfolio',
     $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
@@ -324,6 +328,87 @@ SELECT pg_temp.expect_error('trade: unknown ticker',
     $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
         VALUES (pg_temp.pf('Alice Growth'), 'ZZZZ', 'BUY', 1, 185, '2024-01-02') $q$,
     'fk_trade_daily_price');
+
+-- =====================================================================
+-- trigger trg_trade_validate (db/programmability/01_trade_validation.sql)
+-- AAPL 2024-01-02: low 183.89, high 188.44
+-- =====================================================================
+
+-- (a) price within low..high
+SELECT pg_temp.expect_ok('trg (a): price = day low allowed',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Max'), 'AAPL', 'BUY', 1, 183.89, '2024-01-02') $q$);
+SELECT pg_temp.expect_ok('trg (a): price = day high allowed',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Max'), 'AAPL', 'BUY', 1, 188.44, '2024-01-02') $q$);
+SELECT pg_temp.expect_error('trg (a): price 1 cent below low',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Max'), 'AAPL', 'BUY', 1, 183.88, '2024-01-02') $q$,
+    'trg_trade_price_in_range');
+SELECT pg_temp.expect_error('trg (a): price 1 cent above high',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Max'), 'AAPL', 'BUY', 1, 188.45, '2024-01-02') $q$,
+    'trg_trade_price_in_range');
+SELECT pg_temp.expect_error('trg (a): price = 0 on a trading day (trigger runs before CHECK)',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Max'), 'AAPL', 'BUY', 1, 0, '2024-01-02') $q$,
+    'trg_trade_price_in_range');
+SELECT pg_temp.expect_error('trg (a): uses the trade date''s range, not another day''s',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Max'), 'AAPL', 'BUY', 1, 188.00, '2024-01-03') $q$,
+    'trg_trade_price_in_range');
+SELECT pg_temp.expect_error('trg (a): checked on UPDATE too',
+    $q$ UPDATE trade SET price = 500
+        WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY' $q$,
+    'trg_trade_price_in_range');
+
+-- (b) no INDEX trading (price 4745.00 is inside ^GSPC's range that day)
+SELECT pg_temp.expect_error('trg (b): BUY ^GSPC rejected',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Max'), '^GSPC', 'BUY', 1, 4745.00, '2024-01-02') $q$,
+    'trg_trade_not_index');
+SELECT pg_temp.expect_error('trg (b): SELL ^GSPC rejected',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Max'), '^GSPC', 'SELL', 1, 4745.00, '2024-01-02') $q$,
+    'trg_trade_not_index');
+
+-- (c) UPDATE: only shares and price may change
+SELECT pg_temp.expect_ok('trg (c): UPDATE shares allowed',
+    $q$ UPDATE trade SET shares = 12
+        WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY' $q$);
+SELECT pg_temp.expect_ok('trg (c): UPDATE price (in range) allowed',
+    $q$ UPDATE trade SET price = 186.00
+        WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY' $q$);
+SELECT pg_temp.expect_ok('trg (c): UPDATE setting columns to the same value allowed',
+    $q$ UPDATE trade SET trade_date = trade_date, ticker = ticker
+        WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY' $q$);
+SELECT pg_temp.expect_error('trg (c): UPDATE trade_date rejected',
+    $q$ UPDATE trade SET trade_date = '2024-01-03'
+        WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY' $q$,
+    'trg_trade_immutable_cols');
+SELECT pg_temp.expect_error('trg (c): UPDATE trade_type rejected',
+    $q$ UPDATE trade SET trade_type = 'SELL'
+        WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY' $q$,
+    'trg_trade_immutable_cols');
+SELECT pg_temp.expect_error('trg (c): UPDATE portfolio_id rejected',
+    $q$ UPDATE trade SET portfolio_id = pg_temp.pf('Alice Max')
+        WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY' $q$,
+    'trg_trade_immutable_cols');
+SELECT pg_temp.expect_error('trg (c): UPDATE ticker directly rejected',
+    $q$ UPDATE trade SET ticker = 'MSFT'
+        WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY' $q$,
+    'trg_trade_immutable_cols');
+SELECT pg_temp.expect_error('trg (c): UPDATE trade_id rejected (GENERATED ALWAYS)',
+    $q$ UPDATE trade SET trade_id = 999999
+        WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY' $q$,
+    '428C9');
+SELECT pg_temp.check('trg (c): rejected updates left the BUY row as 12 @ 186.00 on 2024-01-02',
+    (SELECT shares = 12 AND price = 186.00 AND trade_date = '2024-01-02' AND ticker = 'AAPL'
+     FROM trade WHERE portfolio_id = pg_temp.pf('Alice Growth') AND trade_type = 'BUY'));
+-- (Ticker change via stock rename cascade is tested in the FK section below.)
+
+-- Remove the 2 boundary trades so later counts are unaffected
+DELETE FROM trade WHERE portfolio_id = pg_temp.pf('Alice Max');
 
 -- =====================================================================
 -- watchlist
@@ -414,7 +499,7 @@ SELECT pg_temp.expect_ok('stock: rename ticker AAPL -> AAPLX',
 SELECT pg_temp.check('  -> daily_price follows rename (2 rows)',
     (SELECT count(*) = 2 FROM daily_price WHERE ticker = 'AAPLX')
     AND NOT EXISTS (SELECT 1 FROM daily_price WHERE ticker = 'AAPL'));
-SELECT pg_temp.check('  -> trade follows rename via daily_price (2 rows)',
+SELECT pg_temp.check('  -> trade follows rename via daily_price (2 rows; trigger allows it)',
     (SELECT count(*) = 2 FROM trade WHERE ticker = 'AAPLX')
     AND NOT EXISTS (SELECT 1 FROM trade WHERE ticker = 'AAPL'));
 SELECT pg_temp.check('  -> watchlist_item follows rename',

@@ -21,4 +21,6 @@ BEGIN;
 -- Views (db/views/) go here
 
 -- Functions, procedures, triggers
+\ir programmability/01_trade_validation.sql
+
 COMMIT;

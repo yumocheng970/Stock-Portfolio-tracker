@@ -33,8 +33,13 @@ S&P 500 = stock row '^GSPC', security_type INDEX, no sector/exchange.
 Done so far:
 - db/schema/01_reference_tables.sql (sector, exchange, investor, stock, daily_price)
 - db/schema/02_portfolio_tables.sql (portfolio, cash_transaction, trade, watchlist, watchlist_item, trade_audit)
-- db/tests/test_schema.sql: constraint/cascade tests for 01+02 (runs in a rolled-back transaction)
-Next: triggers (db/programmability/)
+- db/reset.sql: rebuilds everything in order (one transaction)
+- db/programmability/01_trade_validation.sql: trg_trade_validate (BEFORE INSERT OR UPDATE on trade):
+  price in day's low..high, no INDEX, UPDATE only shares/price (ticker change allowed only via stock rename cascade)
+- db/tests/test_schema.sql: constraint/cascade/trigger tests (runs in a rolled-back transaction)
+Next: more triggers (db/programmability/)
+- Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
+  the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 
 ## Design decisions
 - Holdings and cash derived via views (v_holdings, v_cash_balance), never stored
