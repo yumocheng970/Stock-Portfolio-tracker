@@ -288,6 +288,26 @@ SELECT pg_temp.expect_error('cash_transaction: unknown portfolio',
         VALUES (-1, 'DEPOSIT', 1, '2024-01-03') $q$, 'fk_cash_portfolio');
 
 -- =====================================================================
+-- trigger trg_cash_txn_immutable (db/programmability/02_cash_txn_immutable.sql)
+-- Insert-only; cascade deletes are tested in the FK section below.
+-- =====================================================================
+SELECT pg_temp.expect_ok('trg cash: INSERT still works',
+    $q$ INSERT INTO cash_transaction (portfolio_id, txn_type, amount, txn_date)
+        VALUES (pg_temp.pf('Bob Growth'), 'DEPOSIT', 250, '2024-01-02') $q$);
+SELECT pg_temp.expect_error('trg cash: UPDATE amount rejected',
+    $q$ UPDATE cash_transaction SET amount = 999
+        WHERE portfolio_id = pg_temp.pf('Bob Growth') $q$, 'trg_cash_txn_immutable');
+SELECT pg_temp.expect_error('trg cash: UPDATE txn_type rejected',
+    $q$ UPDATE cash_transaction SET txn_type = 'WITHDRAWAL'
+        WHERE portfolio_id = pg_temp.pf('Bob Growth') $q$, 'trg_cash_txn_immutable');
+SELECT pg_temp.expect_error('trg cash: direct DELETE rejected',
+    $q$ DELETE FROM cash_transaction
+        WHERE portfolio_id = pg_temp.pf('Bob Growth') $q$, 'trg_cash_txn_immutable');
+SELECT pg_temp.check('trg cash: Bob''s deposit unchanged after rejected UPDATE/DELETE',
+    (SELECT count(*) = 1 AND bool_and(amount = 250 AND txn_type = 'DEPOSIT')
+     FROM cash_transaction WHERE portfolio_id = pg_temp.pf('Bob Growth')));
+
+-- =====================================================================
 -- trade
 -- =====================================================================
 SELECT pg_temp.expect_ok('trade: valid BUY and SELL',
@@ -513,12 +533,14 @@ SELECT pg_temp.check('  -> its items cascaded away; Alice''s items remain',
 
 -- portfolio -> trade / cash_transaction CASCADE; audit survives
 CREATE TEMP TABLE saved_ids AS
-    SELECT pg_temp.pf('Alice Growth') AS alice_pf, pg_temp.inv('bob@example.com') AS bob_id;
+    SELECT pg_temp.pf('Alice Growth') AS alice_pf,
+           pg_temp.pf('Bob Growth')   AS bob_pf,
+           pg_temp.inv('bob@example.com') AS bob_id;
 SELECT pg_temp.expect_ok('portfolio: delete Alice Growth',
     $q$ DELETE FROM portfolio WHERE portfolio_name = 'Alice Growth' $q$);
 SELECT pg_temp.check('  -> its trades cascaded away',
     NOT EXISTS (SELECT 1 FROM trade t JOIN saved_ids s ON t.portfolio_id = s.alice_pf));
-SELECT pg_temp.check('  -> its cash transactions cascaded away',
+SELECT pg_temp.check('  -> its cash transactions cascaded away (trg cash allows cascade)',
     NOT EXISTS (SELECT 1 FROM cash_transaction c JOIN saved_ids s ON c.portfolio_id = s.alice_pf));
 SELECT pg_temp.check('  -> trade_audit rows kept (no FK)',
     (SELECT count(*) = 2 FROM trade_audit a JOIN saved_ids s ON a.portfolio_id = s.alice_pf));
@@ -530,6 +552,8 @@ SELECT pg_temp.expect_ok('investor: delete Bob',
     $q$ DELETE FROM investor WHERE email = 'bob@example.com' $q$);
 SELECT pg_temp.check('  -> Bob''s portfolios cascaded away',
     NOT EXISTS (SELECT 1 FROM portfolio p JOIN saved_ids s ON p.investor_id = s.bob_id));
+SELECT pg_temp.check('  -> Bob''s cash transactions cascaded away (investor -> portfolio -> cash; trg cash allows it)',
+    NOT EXISTS (SELECT 1 FROM cash_transaction c JOIN saved_ids s ON c.portfolio_id = s.bob_pf));
 SELECT pg_temp.check('  -> Bob''s trades cascaded away (investor -> portfolio -> trade)',
     NOT EXISTS (SELECT 1 FROM trade WHERE ticker = 'MSFT'));
 SELECT pg_temp.check('  -> Bob''s watchlists cascaded away',

@@ -22,5 +22,6 @@ BEGIN;
 
 -- Functions, procedures, triggers
 \ir programmability/01_trade_validation.sql
+\ir programmability/02_cash_txn_immutable.sql
 
 COMMIT;
