@@ -62,9 +62,18 @@ Done so far:
   then LEFT JOINed (no fan-out); COALESCE turns missing parts into 0. Shows CURRENT balance
   (all rows, any date). WHERE portfolio_id = X is pushed into both CTEs and uses
   idx_trade_portfolio_date / idx_cash_portfolio_date.
-  Views load in reset.sql BEFORE programmability: trigger 2d and execute_trade() will reuse this view
+  Views load in reset.sql BEFORE programmability. Trigger 2d does NOT use it (needs running history);
+  tests use it as a cross-check against fn_portfolio_history; execute_trade() and the app will use it
+- db/programmability/04_balance_checks.sql: trigger 2d.
+  fn_portfolio_history(id): running cash_after / shares_after per event (window SUM, ROWS UNBOUNDED
+  PRECEDING; order date, cash before trades, id). fn_check_portfolio_history(id): raises at first
+  negative point (trg_cash_never_negative / trg_shares_never_negative, DETAIL has date + amount).
+  trg_trade_date_order / trg_cash_txn_date_order (BEFORE INSERT, shared fn_event_date_order):
+  lock portfolio, trg_date_before_start / trg_date_before_latest / trg_cash_txn_future_date.
+  trg_trade_history_check (AFTER INSERT/UPDATE/DELETE) / trg_cash_txn_history_check (AFTER INSERT):
+  lock portfolio, replay whole history; portfolio gone = cascade delete -> skip.
 - db/tests/test_schema.sql: constraint/cascade/trigger/view tests (runs in a rolled-back transaction)
-Next: v_holdings, then trigger 2d (cash/shares checks) and execute_trade()
+Next: v_holdings, then execute_trade()
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 
@@ -73,11 +82,13 @@ Next: v_holdings, then trigger 2d (cash/shares checks) and execute_trade()
 - Cash = starting cash + deposits - withdrawals - buys + sells
 - portfolio has start_date (simulation start) separate from created_date; all trades/cash txns >= start_date
 - New trade/cash txn date >= portfolio's latest trade/cash txn date (>=, not >)
-- Same-day ordering: cash transactions before trades
+- Same-day ordering: cash transactions before trades. Consequence: a withdrawal entered after a
+  same-day SELL can't use that SELL's proceeds (it is replayed before the SELL)
 - Buy fails if not enough cash; sell fails if not enough shares; withdrawal fails if > cash
 - Trade price within that day's low/high; trade date must have price data
 - Row-level rules (price range, not INDEX, valid date) in BEFORE INSERT OR UPDATE trigger, not only in execute_trade()
-- execute_trade() locks the portfolio row (SELECT ... FOR UPDATE)
+- Portfolio row lock (SELECT ... FOR UPDATE) is taken by the 2d triggers, so direct SQL is safe too;
+  execute_trade() may lock it again (no-op). Relies on READ COMMITTED (default isolation level)
 - Trade update/delete: replay history, reject if cash or shares ever < 0
 - Trade updates: only shares and price can change
 - Cash transactions cannot be updated or deleted

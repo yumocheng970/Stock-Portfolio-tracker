@@ -25,5 +25,6 @@ BEGIN;
 \ir programmability/01_trade_validation.sql
 \ir programmability/02_cash_txn_immutable.sql
 \ir programmability/03_trade_audit.sql
+\ir programmability/04_balance_checks.sql
 
 COMMIT;
