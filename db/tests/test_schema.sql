@@ -1,9 +1,10 @@
 -- =====================================================================
 -- Paper-Trading Portfolio Tracker  (CS 5200, Yumo Cheng)
--- Schema tests for 01_reference_tables.sql and 02_portfolio_tables.sql,
--- plus programmability/01_trade_validation.sql (trigger)
--- Rebuild first if needed: psql portfolio_tracker -f db/reset.sql
--- Run: psql portfolio_tracker -q -f db/tests/test_schema.sql
+-- Tests for everything db/reset.sql builds: schema constraints and FK
+-- actions, views, triggers and the execute_trade() procedure.
+-- Uses the TEST database only (portfolio_tracker_test).
+-- Run: make test   (rebuilds portfolio_tracker_test, never the real DB)
+-- or:  psql portfolio_tracker_test -q -f db/tests/test_schema.sql
 -- Everything runs in one transaction that is ROLLED BACK at the end,
 -- so the database is left unchanged.
 -- =====================================================================
@@ -1266,5 +1267,15 @@ SELECT count(*) FILTER (WHERE passed)     AS passed,
        count(*) FILTER (WHERE NOT passed) AS failed,
        count(*)                           AS total
 FROM test_result;
+
+-- Make the psql run fail (exit code 3, thanks to ON_ERROR_STOP) when any
+-- test failed, so `make test` stops. The open transaction is rolled back
+-- when psql exits, so the database is unchanged either way.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM test_result WHERE NOT passed) THEN
+        RAISE EXCEPTION '% SQL test(s) failed', (SELECT count(*) FROM test_result WHERE NOT passed);
+    END IF;
+END $$;
 
 ROLLBACK;

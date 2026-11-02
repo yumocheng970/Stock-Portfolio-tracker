@@ -33,14 +33,22 @@ Every plan must START with this short summary (max 10 lines), before any details
 Then the details.
 
 ## Environment
-- WSL (Ubuntu) on Windows 11; Linux user `ethan`; conda `base` is active
+- WSL (Ubuntu) on Windows 11; Linux user `ethan`; project conda env is `spt` (`conda activate spt`;
+  Python 3.12, psycopg 3, pandas, python-dotenv, yfinance, pytest). Not `base`.
 - Repo: ~/projects/5200/Stock-Portfolio-tracker (app/, db/, etl/, data/, docs/, tests/)
 - analytics_cpp/ is out of scope (C++ dropped from proposal); ignore it
-- PostgreSQL 16 in WSL, database `portfolio_tracker`, role `ethan`
-- Always rebuild with reset.sql: `psql portfolio_tracker -f db/reset.sql` (drops all data).
+- PostgreSQL 16 in WSL, role `ethan`. Two databases:
+  - `portfolio_tracker`: REAL data (loaded prices). Never run tests here.
+  - `portfolio_tracker_test`: tests only, rebuilt from scratch by every `make test`.
+- Tests: `make test` = rebuild portfolio_tracker_test with reset.sql + SQL tests + pytest.
+  db/tests/test_schema.sql exits non-zero if any test fails.
+- Always rebuild with reset.sql (drops ALL data): `psql <db> -f db/reset.sql`. On portfolio_tracker
+  that wipes the loaded prices: re-run `make load-prices` afterwards.
   Never run schema files one at a time: 01 alone silently drops Part 2's FKs.
   Every new schema/view/programmability file must be added to db/reset.sql.
-- Run tests with: `psql portfolio_tracker -q -f db/tests/test_schema.sql` (rolled back, DB unchanged)
+- Python connects via etl/db.py using .env (git-ignored; template .env.example). Default is the
+  Unix socket DB_HOST=/var/run/postgresql with peer auth (conda's libpq looks in /tmp otherwise).
+- Run ETL as modules from the repo root: `python -m etl.load_prices` (or `make load-prices`)
 - Never write the DB password in code or commit it; read it from a git-ignored .env file
 - DBeaver (Windows) connects via localhost:5432
 - Final deliverable: `cheng_final_project.sql` (pg_dump: DDL, data, functions, procedures, triggers)
@@ -93,7 +101,12 @@ Done so far:
   exec_missing_input / exec_no_price_data, NULL price = that day's close, then one INSERT; all
   trigger/CHECK/FK errors pass through. No COMMIT, no own lock. CALL args can't contain subqueries.
 - db/tests/test_schema.sql: constraint/cascade/trigger/view/procedure tests (runs in a rolled-back transaction)
-Next: to be decided (Python app / ETL)
+- ETL A (real prices): data/tickers.csv (25 stocks, 8 sectors, + ^GSPC; kept by hand),
+  etl/load_prices.py (yfinance auto_adjust=False, 2021-01-01 .. YESTERDAY, rounded half-up to 2 dp,
+  insert-only: downloads dates after the last stored one + ON CONFLICT DO NOTHING; rows breaking a
+  CHECK are skipped and logged; one transaction per ticker), tests/test_clean_prices.py (pytest),
+  db/tests/check_prices.sql (read-only checks on the real DB, `make check-prices`), Makefile
+Next: ETL B (sample investors/portfolios/trades with Faker), then the Python CLI app
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

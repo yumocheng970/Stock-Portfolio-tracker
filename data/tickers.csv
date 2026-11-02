@@ -1,0 +1,27 @@
+ticker,company_name,sector,exchange
+AAPL,Apple Inc.,Technology,NASDAQ
+MSFT,Microsoft Corporation,Technology,NASDAQ
+NVDA,NVIDIA Corporation,Technology,NASDAQ
+ORCL,Oracle Corporation,Technology,NYSE
+GOOGL,Alphabet Inc. (Class A),Communication Services,NASDAQ
+META,Meta Platforms Inc.,Communication Services,NASDAQ
+DIS,The Walt Disney Company,Communication Services,NYSE
+AMZN,Amazon.com Inc.,Consumer Discretionary,NASDAQ
+TSLA,Tesla Inc.,Consumer Discretionary,NASDAQ
+HD,The Home Depot Inc.,Consumer Discretionary,NYSE
+PG,The Procter & Gamble Company,Consumer Staples,NYSE
+KO,The Coca-Cola Company,Consumer Staples,NYSE
+COST,Costco Wholesale Corporation,Consumer Staples,NASDAQ
+JPM,JPMorgan Chase & Co.,Financials,NYSE
+V,Visa Inc.,Financials,NYSE
+BAC,Bank of America Corporation,Financials,NYSE
+BRK-B,Berkshire Hathaway Inc. (Class B),Financials,NYSE
+JNJ,Johnson & Johnson,Health Care,NYSE
+UNH,UnitedHealth Group Inc.,Health Care,NYSE
+LLY,Eli Lilly and Company,Health Care,NYSE
+XOM,Exxon Mobil Corporation,Energy,NYSE
+CVX,Chevron Corporation,Energy,NYSE
+CAT,Caterpillar Inc.,Industrials,NYSE
+BA,The Boeing Company,Industrials,NYSE
+UNP,Union Pacific Corporation,Industrials,NYSE
+^GSPC,S&P 500,,

@@ -39,3 +39,5 @@ dependencies:
   - pip
   - pip:
       - kaggle>=2.2
+      - yfinance>=1.7
+      - pytest>=9.0
