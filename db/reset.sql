@@ -20,6 +20,7 @@ BEGIN;
 
 -- Views (before programmability: functions/triggers will use them)
 \ir views/01_v_cash_balance.sql
+\ir views/02_v_holdings.sql
 
 -- Functions, procedures, triggers
 \ir programmability/01_trade_validation.sql

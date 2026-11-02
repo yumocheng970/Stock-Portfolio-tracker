@@ -73,8 +73,14 @@ Done so far:
   lock portfolio, trg_date_before_start / trg_date_before_latest / trg_cash_txn_future_date.
   trg_trade_history_check (AFTER INSERT/UPDATE/DELETE) / trg_cash_txn_history_check (AFTER INSERT):
   lock portfolio, replay whole history; portfolio gone = cascade delete -> skip.
+- db/views/02_v_holdings.sql: fn_position_history(id) walks each ticker's trades in order
+  (date, trade_id) with a recursive CTE, carrying shares / avg cost (full precision) / realized P/L.
+  v_holdings = portfolio CROSS JOIN LATERAL fn_position_history, last row per (portfolio, ticker):
+  shares_held, avg_cost, cost_basis, realized_pl, is_open, trade_count, last_trade_date.
+  Closed positions kept (is_open false, avg_cost NULL, cost_basis 0). No unrealized P/L (needs a
+  price date; later = shares_held * close - cost_basis)
 - db/tests/test_schema.sql: constraint/cascade/trigger/view tests (runs in a rolled-back transaction)
-Next: v_holdings, then execute_trade()
+Next: execute_trade()
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

@@ -892,6 +892,125 @@ SELECT pg_temp.check('bal history: Bal SameDay history in order (cash before tra
      FROM fn_portfolio_history(pg_temp.pf('Bal SameDay'))));
 
 -- =====================================================================
+-- view v_holdings / fn_position_history (db/views/02_v_holdings.sql)
+-- Reuses BALT; fictional HLDT has the same range (90..200, 01-02..01-05).
+-- d1 = 01-02, d2 = 01-03, d3 = 01-04
+-- =====================================================================
+SELECT pg_temp.expect_ok('hold: setup stock HLDT and portfolios',
+    $q$
+    INSERT INTO stock (ticker, company_name) VALUES ('HLDT', 'Holdings Test Corp');
+    INSERT INTO daily_price
+        SELECT 'HLDT', d::date, 100, 200, 90, 150, 1000
+        FROM generate_series('2024-01-02'::date, '2024-01-05'::date, '1 day') AS d;
+    INSERT INTO portfolio (investor_id, portfolio_name, starting_cash, start_date)
+    SELECT pg_temp.inv('alice@example.com'), name, 100000, '2024-01-02'
+    FROM unnest(ARRAY['Hold Avg', 'Hold Reset', 'Hold Closed', 'Hold Two',
+                      'Hold SameDay', 'Hold Precision', 'Hold Empty']) AS name;
+    $q$);
+
+-- BUY 10 @ 100, SELL 5 @ 150, BUY 5 @ 200 --------------------------------
+-- avg 100 -> SELL 5: realized 5 * (150 - 100) = 250, avg stays 100
+-- -> BUY 5 @ 200: avg (5*100 + 5*200) / 10 = 150
+SELECT pg_temp.expect_ok('hold avg: BUY 10 @ 100, SELL 5 @ 150, BUY 5 @ 200',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Hold Avg'), 'BALT', 'BUY',  10, 100, '2024-01-02'),
+        (pg_temp.pf('Hold Avg'), 'BALT', 'SELL',  5, 150, '2024-01-03'),
+        (pg_temp.pf('Hold Avg'), 'BALT', 'BUY',   5, 200, '2024-01-04') $q$);
+SELECT pg_temp.check('hold avg: shares 10, avg_cost 150.00, realized 250.00, cost_basis 1500.00',
+    (SELECT shares_held = 10 AND avg_cost = 150.00 AND realized_pl = 250.00
+            AND cost_basis = 1500.00 AND is_open AND trade_count = 3
+     FROM v_holdings WHERE portfolio_id = pg_temp.pf('Hold Avg')));
+-- The naive "total buy cost / total bought shares" = 2000 / 15 = 133.33.
+-- This check confirms the test above would catch that formula.
+SELECT pg_temp.check('hold avg: (demo) naive SUM formula gives 133.33, not 150.00',
+    (SELECT ROUND(SUM(shares * price) / SUM(shares), 2) = 133.33
+     FROM trade WHERE portfolio_id = pg_temp.pf('Hold Avg') AND trade_type = 'BUY'));
+SELECT pg_temp.check('hold avg: fn_position_history SELL row has realized_pl 250, avg 100',
+    (SELECT realized_pl = 250 AND avg_cost_after = 100 AND shares_after = 5
+     FROM fn_position_history(pg_temp.pf('Hold Avg')) WHERE trade_type = 'SELL'));
+
+-- BUY 10 @ 100, SELL 10 @ 120, BUY 5 @ 200: fresh start after 0 ----------
+SELECT pg_temp.expect_ok('hold reset: BUY 10 @ 100, SELL 10 @ 120, BUY 5 @ 200',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Hold Reset'), 'BALT', 'BUY',  10, 100, '2024-01-02'),
+        (pg_temp.pf('Hold Reset'), 'BALT', 'SELL', 10, 120, '2024-01-03'),
+        (pg_temp.pf('Hold Reset'), 'BALT', 'BUY',   5, 200, '2024-01-04') $q$);
+SELECT pg_temp.check('hold reset: shares 5, avg_cost 200.00 (fresh), realized 200.00',
+    (SELECT shares_held = 5 AND avg_cost = 200.00 AND realized_pl = 200.00 AND cost_basis = 1000.00
+     FROM v_holdings WHERE portfolio_id = pg_temp.pf('Hold Reset')));
+
+-- Closed position stays in the view --------------------------------------
+SELECT pg_temp.expect_ok('hold closed: BUY 10 @ 100, SELL 10 @ 150',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Hold Closed'), 'BALT', 'BUY',  10, 100, '2024-01-02'),
+        (pg_temp.pf('Hold Closed'), 'BALT', 'SELL', 10, 150, '2024-01-03') $q$);
+SELECT pg_temp.check('hold closed: row kept, is_open false, avg NULL, cost_basis 0, realized 500.00',
+    (SELECT count(*) = 1
+            AND bool_and(shares_held = 0 AND NOT is_open AND avg_cost IS NULL
+                         AND cost_basis = 0 AND realized_pl = 500.00)
+     FROM v_holdings WHERE portfolio_id = pg_temp.pf('Hold Closed')));
+
+-- Two tickers are independent ---------------------------------------------
+SELECT pg_temp.expect_ok('hold two: BALT BUY 10 @ 100, HLDT BUY 4 @ 150, BALT SELL 5 @ 120, HLDT SELL 2 @ 190',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Hold Two'), 'BALT', 'BUY',  10, 100, '2024-01-02'),
+        (pg_temp.pf('Hold Two'), 'HLDT', 'BUY',   4, 150, '2024-01-02'),
+        (pg_temp.pf('Hold Two'), 'BALT', 'SELL',  5, 120, '2024-01-03'),
+        (pg_temp.pf('Hold Two'), 'HLDT', 'SELL',  2, 190, '2024-01-03') $q$);
+SELECT pg_temp.check('hold two: BALT 5 shares, avg 100.00, realized 100.00',
+    (SELECT shares_held = 5 AND avg_cost = 100.00 AND realized_pl = 100.00
+     FROM v_holdings WHERE portfolio_id = pg_temp.pf('Hold Two') AND ticker = 'BALT'));
+SELECT pg_temp.check('hold two: HLDT 2 shares, avg 150.00, realized 80.00',
+    (SELECT shares_held = 2 AND avg_cost = 150.00 AND realized_pl = 80.00
+     FROM v_holdings WHERE portfolio_id = pg_temp.pf('Hold Two') AND ticker = 'HLDT'));
+
+-- Same date: order by trade_id ---------------------------------------------
+-- BUY 10 @ 100 (d1), BUY 10 @ 200 (d2), SELL 10 @ 150 (d2, later id):
+-- avg 150, SELL realized 10 * (150 - 150) = 0.
+-- If the SELL were counted before the d2 BUY: realized 500, avg 200.
+SELECT pg_temp.expect_ok('hold same day: d1 BUY 10 @ 100, d2 BUY 10 @ 200, d2 SELL 10 @ 150',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Hold SameDay'), 'BALT', 'BUY',  10, 100, '2024-01-02'),
+        (pg_temp.pf('Hold SameDay'), 'BALT', 'BUY',  10, 200, '2024-01-03'),
+        (pg_temp.pf('Hold SameDay'), 'BALT', 'SELL', 10, 150, '2024-01-03') $q$);
+SELECT pg_temp.check('hold same day: avg 150.00, realized 0.00 (BUY counted before the later SELL)',
+    (SELECT shares_held = 10 AND avg_cost = 150.00 AND realized_pl = 0.00
+     FROM v_holdings WHERE portfolio_id = pg_temp.pf('Hold SameDay')));
+
+-- Precision: full precision inside, round on output ------------------------
+SELECT pg_temp.expect_ok('hold precision: BUY 10 @ 100, BUY 5 @ 200',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Hold Precision'), 'BALT', 'BUY', 10, 100, '2024-01-02'),
+        (pg_temp.pf('Hold Precision'), 'BALT', 'BUY',  5, 200, '2024-01-03') $q$);
+SELECT pg_temp.check('hold precision: avg_cost 133.33 but cost_basis 2000.00 (not 133.33 x 15 = 1999.95)',
+    (SELECT avg_cost = 133.33 AND cost_basis = 2000.00
+     FROM v_holdings WHERE portfolio_id = pg_temp.pf('Hold Precision')));
+
+-- No trades: no rows ---------------------------------------------------------
+SELECT pg_temp.check('hold empty: portfolio with no trades has no v_holdings rows',
+    NOT EXISTS (SELECT 1 FROM v_holdings WHERE portfolio_id = pg_temp.pf('Hold Empty')));
+
+-- Cross-check against the balance replay ------------------------------------
+-- For every (portfolio, ticker): last shares_after in fn_portfolio_history
+-- = v_holdings.shares_held, with no rows missing on either side.
+SELECT pg_temp.check('hold cross-check: v_holdings shares = replay shares for every portfolio and ticker',
+    (SELECT count(*) > 0 FROM v_holdings)
+    AND NOT EXISTS (
+        WITH replay AS (
+            SELECT DISTINCT ON (p.portfolio_id, h.ticker)
+                   p.portfolio_id, h.ticker, h.shares_after
+            FROM portfolio p
+            CROSS JOIN LATERAL fn_portfolio_history(p.portfolio_id) h
+            WHERE h.ticker IS NOT NULL
+            ORDER BY p.portfolio_id, h.ticker,
+                     h.event_date DESC, h.event_order DESC, h.event_id DESC
+        )
+        SELECT 1
+        FROM replay r
+        FULL JOIN v_holdings v ON v.portfolio_id = r.portfolio_id AND v.ticker = r.ticker
+        WHERE r.shares_after IS DISTINCT FROM v.shares_held));
+
+-- =====================================================================
 -- watchlist
 -- =====================================================================
 SELECT pg_temp.expect_ok('watchlist: valid insert',
