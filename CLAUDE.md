@@ -16,6 +16,8 @@ When you finish a step, reply in this order, and keep it short:
 3. NEXT: one line.
 Put the full explanation (how the code works, EN + 中文, with a tiny example) in a file
 docs/notes/<step-name>.md instead of the chat, and tell me the file name.
+Whenever a step makes a design decision or finds a limitation, add a line to
+docs/notes/report_material.md (final report material, Task 5) as part of that step.
 
 Commit rules:
 - Commit at the end of every step, after all tests pass. Never commit failing tests.
