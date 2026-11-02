@@ -40,6 +40,10 @@ Done so far:
   (BEFORE UPDATE OR DELETE, row-level: rejects UPDATE and direct DELETE; allows cascade delete
   when parent portfolio is already gone) and trg_cash_txn_no_truncate (BEFORE TRUNCATE,
   statement-level; also blocks TRUNCATE portfolio/investor CASCADE, so cleanup must use DELETE)
+- db/programmability/03_trade_audit.sql (written by me): trg_trade_audit is AFTER (not BEFORE)
+  UPDATE OR DELETE, row-level: copies OLD row into trade_audit, so only changes that actually
+  happen are logged (rejected/cancelled ones never reach it). Cascade deletes and ticker renames
+  are audited too. trg_trade_no_truncate (BEFORE TRUNCATE) because TRUNCATE skips row triggers.
 - db/tests/test_schema.sql: constraint/cascade/trigger tests (runs in a rolled-back transaction)
 Next: more triggers (db/programmability/)
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them

@@ -436,7 +436,91 @@ SELECT pg_temp.check('trg (c): rejected updates left the BUY row as 12 @ 186.00 
 -- (Ticker change via stock rename cascade is tested in the FK section below.)
 
 -- Remove the 2 boundary trades so later counts are unaffected
-DELETE FROM trade WHERE portfolio_id = pg_temp.pf('Alice Max');
+-- (expect_ok, not a bare DELETE: a broken audit trigger then shows up
+-- as one FAIL instead of stopping the whole script)
+SELECT pg_temp.expect_ok('cleanup: delete the 2 boundary trades',
+    $q$ DELETE FROM trade WHERE portfolio_id = pg_temp.pf('Alice Max') $q$);
+
+-- =====================================================================
+-- trigger trg_trade_audit (db/programmability/03_trade_audit.sql)
+-- Uses its own portfolio 'Alice Audit' so audit counts are isolated.
+-- AAPL 2024-01-02: low 183.89, high 188.44; 2024-01-03: 183.43..185.88
+-- =====================================================================
+SELECT pg_temp.expect_ok('trg audit: setup portfolio Alice Audit',
+    $q$ INSERT INTO portfolio (investor_id, portfolio_name, starting_cash, start_date)
+        VALUES (pg_temp.inv('alice@example.com'), 'Alice Audit', 100000, '2024-01-02') $q$);
+CREATE TEMP TABLE audit_ids AS SELECT pg_temp.pf('Alice Audit') AS pf_id;
+
+-- INSERT: no audit row
+SELECT pg_temp.expect_ok('trg audit: INSERT a trade (4 @ 185.00)',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Audit'), 'AAPL', 'BUY', 4, 185.00, '2024-01-02') $q$);
+SELECT pg_temp.check('trg audit: INSERT writes NO audit row',
+    NOT EXISTS (SELECT 1 FROM trade_audit a JOIN audit_ids s ON a.portfolio_id = s.pf_id));
+
+-- UPDATE: one row with the OLD values
+SELECT pg_temp.expect_ok('trg audit: UPDATE to 6 @ 186.00',
+    $q$ UPDATE trade SET shares = 6, price = 186.00
+        WHERE portfolio_id = pg_temp.pf('Alice Audit') $q$);
+SELECT pg_temp.check('trg audit: UPDATE writes 1 row: UPDATE, OLD 4 @ 185.00, same trade_id',
+    (SELECT count(*) = 1
+            AND bool_and(a.operation = 'UPDATE' AND a.shares = 4 AND a.price = 185.00
+                         AND a.trade_id = t.trade_id AND a.ticker = 'AAPL'
+                         AND a.trade_date = '2024-01-02' AND a.changed_by = current_user)
+     FROM trade_audit a
+     JOIN audit_ids s ON a.portfolio_id = s.pf_id
+     JOIN trade t     ON t.portfolio_id = s.pf_id));
+SELECT pg_temp.check('trg audit: the trade itself now holds the NEW values 6 @ 186.00',
+    (SELECT shares = 6 AND price = 186.00 FROM trade WHERE portfolio_id = pg_temp.pf('Alice Audit')));
+
+-- Rejected UPDATE: no audit row (whole statement rolled back)
+SELECT pg_temp.expect_error('trg audit: UPDATE rejected by trg_trade_validate (price 500)',
+    $q$ UPDATE trade SET price = 500 WHERE portfolio_id = pg_temp.pf('Alice Audit') $q$,
+    'trg_trade_price_in_range');
+SELECT pg_temp.expect_error('trg audit: UPDATE rejected by trg_trade_validate (trade_date)',
+    $q$ UPDATE trade SET trade_date = '2024-01-03' WHERE portfolio_id = pg_temp.pf('Alice Audit') $q$,
+    'trg_trade_immutable_cols');
+SELECT pg_temp.check('trg audit: rejected UPDATEs write NO audit row (still 1)',
+    (SELECT count(*) = 1 FROM trade_audit a JOIN audit_ids s ON a.portfolio_id = s.pf_id));
+
+-- DELETE: one row with operation DELETE
+SELECT pg_temp.expect_ok('trg audit: INSERT a second trade (2 @ 184.00 on 2024-01-03)',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Audit'), 'AAPL', 'BUY', 2, 184.00, '2024-01-03') $q$);
+CREATE TEMP TABLE audit_deleted AS
+    SELECT trade_id FROM trade
+    WHERE portfolio_id = pg_temp.pf('Alice Audit') AND trade_date = '2024-01-03';
+SELECT pg_temp.expect_ok('trg audit: DELETE the second trade',
+    $q$ DELETE FROM trade WHERE trade_id = (SELECT trade_id FROM audit_deleted) $q$);
+SELECT pg_temp.check('trg audit: DELETE writes 1 row: DELETE, OLD 2 @ 184.00',
+    (SELECT count(*) = 1
+            AND bool_and(a.operation = 'DELETE' AND a.shares = 2 AND a.price = 184.00
+                         AND a.trade_date = '2024-01-03')
+     FROM trade_audit a JOIN audit_deleted d ON a.trade_id = d.trade_id));
+
+-- Portfolio delete: one DELETE row per trade, and they survive
+SELECT pg_temp.expect_ok('trg audit: INSERT a third trade (1 @ 184.50 on 2024-01-03)',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Alice Audit'), 'AAPL', 'BUY', 1, 184.50, '2024-01-03') $q$);
+CREATE TEMP TABLE audit_cascaded AS
+    SELECT trade_id FROM trade WHERE portfolio_id = pg_temp.pf('Alice Audit');
+SELECT pg_temp.check('trg audit: portfolio has 2 trades before delete',
+    (SELECT count(*) = 2 FROM audit_cascaded));
+SELECT pg_temp.expect_ok('trg audit: delete portfolio Alice Audit',
+    $q$ DELETE FROM portfolio WHERE portfolio_name = 'Alice Audit' $q$);
+SELECT pg_temp.check('trg audit: cascade writes exactly 1 DELETE row per trade (2)',
+    (SELECT count(*) = 2 AND count(DISTINCT a.trade_id) = 2
+     FROM trade_audit a JOIN audit_cascaded c ON a.trade_id = c.trade_id
+     WHERE a.operation = 'DELETE'));   -- the first trade also has its earlier UPDATE row
+SELECT pg_temp.check('trg audit: all 4 audit rows survive the portfolio (no FK)',
+    (SELECT count(*) = 4 FROM trade_audit a JOIN audit_ids s ON a.portfolio_id = s.pf_id)
+    AND NOT EXISTS (SELECT 1 FROM portfolio p JOIN audit_ids s ON p.portfolio_id = s.pf_id));
+
+-- TRUNCATE guard
+SELECT pg_temp.expect_error('trg audit: TRUNCATE trade rejected',
+    $q$ TRUNCATE trade $q$, 'trg_trade_no_truncate');
+SELECT pg_temp.check('trg audit: trades still there after rejected TRUNCATE',
+    EXISTS (SELECT 1 FROM trade));
 
 -- =====================================================================
 -- watchlist
@@ -482,11 +566,13 @@ SELECT pg_temp.expect_error('watchlist_item: unknown ticker',
 -- =====================================================================
 -- trade_audit
 -- =====================================================================
-SELECT pg_temp.expect_ok('trade_audit: valid UPDATE and DELETE snapshots',
+-- Manual rows use fake ids (-98) so they don't mix with rows the
+-- audit trigger writes for real portfolios.
+SELECT pg_temp.expect_ok('trade_audit: valid UPDATE and DELETE snapshots (manual insert)',
     $q$ INSERT INTO trade_audit (operation, trade_id, portfolio_id, ticker, trade_type,
                                  shares, price, trade_date) VALUES
-        ('UPDATE', 1, pg_temp.pf('Alice Growth'), 'AAPL', 'BUY', 10, 185, '2024-01-02'),
-        ('DELETE', 2, pg_temp.pf('Alice Growth'), 'AAPL', 'SELL', 5, 184, '2024-01-03') $q$);
+        ('UPDATE', -1, -98, 'AAPL', 'BUY', 10, 185, '2024-01-02'),
+        ('DELETE', -2, -98, 'AAPL', 'SELL', 5, 184, '2024-01-03') $q$);
 SELECT pg_temp.check('trade_audit: changed_at and changed_by defaults filled',
     (SELECT bool_and(changed_at IS NOT NULL AND changed_by = current_user) FROM trade_audit));
 SELECT pg_temp.expect_ok('trade_audit: no FK, so a nonexistent trade/portfolio is allowed',
@@ -522,6 +608,8 @@ SELECT pg_temp.check('  -> NVDA watchlist_item rows cascaded away (both watchlis
 
 -- ON UPDATE CASCADE: rename AAPL -> AAPLX flows stock -> daily_price -> trade
 -- and stock -> watchlist_item
+CREATE TEMP TABLE audit_before_rename AS
+    SELECT COALESCE(max(audit_id), 0) AS max_id FROM trade_audit;
 SELECT pg_temp.expect_ok('stock: rename ticker AAPL -> AAPLX',
     $q$ UPDATE stock SET ticker = 'AAPLX' WHERE ticker = 'AAPL' $q$);
 SELECT pg_temp.check('  -> daily_price follows rename (2 rows)',
@@ -532,6 +620,10 @@ SELECT pg_temp.check('  -> trade follows rename via daily_price (2 rows; trigger
     AND NOT EXISTS (SELECT 1 FROM trade WHERE ticker = 'AAPL'));
 SELECT pg_temp.check('  -> watchlist_item follows rename',
     EXISTS (SELECT 1 FROM watchlist_item WHERE ticker = 'AAPLX'));
+SELECT pg_temp.check('  -> rename audited: 2 new UPDATE rows keeping the OLD ticker AAPL',
+    (SELECT count(*) = 2 AND bool_and(a.operation = 'UPDATE' AND a.ticker = 'AAPL')
+     FROM trade_audit a, audit_before_rename b
+     WHERE a.audit_id > b.max_id));
 
 -- watchlist -> watchlist_item CASCADE
 SELECT pg_temp.expect_ok('watchlist: delete Bob Watch',
@@ -550,8 +642,9 @@ SELECT pg_temp.check('  -> its trades cascaded away',
     NOT EXISTS (SELECT 1 FROM trade t JOIN saved_ids s ON t.portfolio_id = s.alice_pf));
 SELECT pg_temp.check('  -> its cash transactions cascaded away (trg cash allows cascade)',
     NOT EXISTS (SELECT 1 FROM cash_transaction c JOIN saved_ids s ON c.portfolio_id = s.alice_pf));
-SELECT pg_temp.check('  -> trade_audit rows kept (no FK)',
-    (SELECT count(*) = 2 FROM trade_audit a JOIN saved_ids s ON a.portfolio_id = s.alice_pf));
+SELECT pg_temp.check('  -> 1 DELETE audit row per cascaded trade (2), kept (no FK)',
+    (SELECT count(*) = 2 FROM trade_audit a JOIN saved_ids s ON a.portfolio_id = s.alice_pf
+     WHERE a.operation = 'DELETE'));
 SELECT pg_temp.expect_ok('stock AAPLX: delete allowed once its trades are gone',
     $q$ DELETE FROM stock WHERE ticker = 'AAPLX' $q$);
 
