@@ -88,8 +88,12 @@ Done so far:
   shares_held, avg_cost, cost_basis, realized_pl, is_open, trade_count, last_trade_date.
   Closed positions kept (is_open false, avg_cost NULL, cost_basis 0). No unrealized P/L (needs a
   price date; later = shares_held * close - cost_basis)
-- db/tests/test_schema.sql: constraint/cascade/trigger/view tests (runs in a rolled-back transaction)
-Next: execute_trade()
+- db/programmability/05_execute_trade.sql: PROCEDURE execute_trade(portfolio_id, ticker, trade_type,
+  shares, trade_date, price DEFAULT NULL, INOUT trade_id). Normalizes (trim + upper), adds only
+  exec_missing_input / exec_no_price_data, NULL price = that day's close, then one INSERT; all
+  trigger/CHECK/FK errors pass through. No COMMIT, no own lock. CALL args can't contain subqueries.
+- db/tests/test_schema.sql: constraint/cascade/trigger/view/procedure tests (runs in a rolled-back transaction)
+Next: to be decided (Python app / ETL)
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 
@@ -104,7 +108,7 @@ Next: execute_trade()
 - Trade price within that day's low/high; trade date must have price data
 - Row-level rules (price range, not INDEX, valid date) in BEFORE INSERT OR UPDATE trigger, not only in execute_trade()
 - Portfolio row lock (SELECT ... FOR UPDATE) is taken by the 2d triggers, so direct SQL is safe too;
-  execute_trade() may lock it again (no-op). Relies on READ COMMITTED (default isolation level)
+  execute_trade() does not lock; the triggers do. Relies on READ COMMITTED (default isolation level)
 - Trade update/delete: replay history, reject if cash or shares ever < 0
 - Trade updates: only shares and price can change
 - Cash transactions cannot be updated or deleted

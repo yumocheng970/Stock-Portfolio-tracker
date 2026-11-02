@@ -1011,6 +1011,109 @@ SELECT pg_temp.check('hold cross-check: v_holdings shares = replay shares for ev
         WHERE r.shares_after IS DISTINCT FROM v.shares_held));
 
 -- =====================================================================
+-- procedure execute_trade (db/programmability/05_execute_trade.sql)
+-- Reuses BALT (90..200, close 150 on 01-02..01-05) and ^GSPC 2024-01-02.
+-- All CALLs run inside this file's one transaction: a COMMIT inside the
+-- procedure would fail here ("invalid transaction termination").
+-- =====================================================================
+
+-- Test helper: CALL the procedure and return its INOUT trade_id
+CREATE FUNCTION pg_temp.call_trade(p_pf INTEGER, p_ticker TEXT, p_type TEXT,
+                                   p_shares INTEGER, p_date DATE,
+                                   p_price NUMERIC DEFAULT NULL)
+RETURNS INTEGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_id INTEGER;
+BEGIN
+    CALL execute_trade(p_pf, p_ticker, p_type, p_shares, p_date, p_price, v_id);
+    RETURN v_id;
+END $$;
+
+CREATE TEMP TABLE exec_ids (label TEXT, trade_id INTEGER);
+
+SELECT pg_temp.expect_ok('exec: setup portfolios Exec Main, Exec Index, Exec Errors',
+    $q$ INSERT INTO portfolio (investor_id, portfolio_name, starting_cash, start_date)
+        SELECT pg_temp.inv('alice@example.com'), name, 10000, '2024-01-02'
+        FROM unnest(ARRAY['Exec Main', 'Exec Index', 'Exec Errors']) AS name $q$);
+
+-- Success ------------------------------------------------------------------
+SELECT pg_temp.expect_ok('exec: CALL with explicit price (BUY 10 @ 120 on 01-02)',
+    $q$ INSERT INTO exec_ids
+        SELECT 'explicit', pg_temp.call_trade(pg_temp.pf('Exec Main'), 'BALT', 'BUY', 10,
+                                              '2024-01-02', 120) $q$);
+SELECT pg_temp.check('exec: returned trade_id is the new row BALT / BUY / 10 / 120.00 / 01-02',
+    (SELECT t.portfolio_id = pg_temp.pf('Exec Main') AND t.ticker = 'BALT'
+            AND t.trade_type = 'BUY' AND t.shares = 10 AND t.price = 120.00
+            AND t.trade_date = '2024-01-02'
+     FROM exec_ids e JOIN trade t ON t.trade_id = e.trade_id
+     WHERE e.label = 'explicit'));
+SELECT pg_temp.expect_ok('exec: CALL without price, input '' balt '' / '' buy '' (BUY 5 on 01-03)',
+    $q$ INSERT INTO exec_ids
+        SELECT 'no price', pg_temp.call_trade(pg_temp.pf('Exec Main'), ' balt ', ' buy ', 5,
+                                              '2024-01-03') $q$);
+SELECT pg_temp.check('exec: no price -> stored price = that day''s close (150.00)',
+    (SELECT t.price = 150.00
+     FROM exec_ids e JOIN trade t ON t.trade_id = e.trade_id WHERE e.label = 'no price'));
+SELECT pg_temp.check('exec: '' balt '' / '' buy '' stored as ''BALT'' / ''BUY''',
+    (SELECT t.ticker = 'BALT' AND t.trade_type = 'BUY'
+     FROM exec_ids e JOIN trade t ON t.trade_id = e.trade_id WHERE e.label = 'no price'));
+SELECT pg_temp.check('exec: v_cash_balance = 10000 - 1200 - 750 = 8050.00',
+    (SELECT cash_balance = 8050.00 FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Exec Main')));
+SELECT pg_temp.check('exec: v_holdings BALT 15 shares, avg 130.00, cost_basis 1950.00',
+    (SELECT shares_held = 15 AND avg_cost = 130.00 AND cost_basis = 1950.00
+     FROM v_holdings WHERE portfolio_id = pg_temp.pf('Exec Main') AND ticker = 'BALT'));
+SELECT pg_temp.expect_ok('exec: plain CALL statement works (SELL 1 at close on 01-03)',
+    $q$ CALL execute_trade(pg_temp.pf('Exec Main'), 'BALT', 'SELL', 1, '2024-01-03', NULL, NULL) $q$);
+SELECT pg_temp.check('exec: after the SELL, v_holdings 14 shares and cash 8200.00',
+    (SELECT shares_held = 14 FROM v_holdings
+     WHERE portfolio_id = pg_temp.pf('Exec Main') AND ticker = 'BALT')
+    AND (SELECT cash_balance = 8200.00 FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Exec Main')));
+
+-- Errors from triggers / constraints pass through unchanged -----------------
+SELECT pg_temp.expect_error('exec: BUY that overdraws -> trg_cash_never_negative',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Main'), 'BALT', 'BUY', 1000, '2024-01-03') $q$,
+    'trg_cash_never_negative');
+SELECT pg_temp.expect_error('exec: trading ^GSPC -> trg_trade_not_index',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Index'), '^gspc', 'buy', 1, '2024-01-02') $q$,
+    'trg_trade_not_index');
+SELECT pg_temp.expect_error('exec: invalid trade_type ''hold'' -> chk_trade_type',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Errors'), 'BALT', 'hold', 1, '2024-01-02') $q$,
+    'chk_trade_type');
+SELECT pg_temp.expect_error('exec: shares 0 -> chk_trade_shares',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Errors'), 'BALT', 'BUY', 0, '2024-01-02') $q$,
+    'chk_trade_shares');
+SELECT pg_temp.expect_error('exec: price given on a weekend -> fk_trade_daily_price',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Errors'), 'BALT', 'BUY', 1, '2024-01-06', 100) $q$,
+    'fk_trade_daily_price');
+SELECT pg_temp.expect_error('exec: unknown portfolio -> fk_trade_portfolio',
+    $q$ SELECT pg_temp.call_trade(-1, 'BALT', 'BUY', 1, '2024-01-02') $q$,
+    'fk_trade_portfolio');
+
+-- Errors added by the procedure ----------------------------------------------
+SELECT pg_temp.expect_error('exec: no price + weekend date -> exec_no_price_data',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Errors'), 'BALT', 'BUY', 1, '2024-01-06') $q$,
+    'exec_no_price_data');
+SELECT pg_temp.expect_error('exec: no price + unknown ticker -> exec_no_price_data',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Errors'), 'ZZZZ', 'BUY', 1, '2024-01-02') $q$,
+    'exec_no_price_data');
+SELECT pg_temp.expect_error('exec: NULL shares -> exec_missing_input',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Errors'), 'BALT', 'BUY', NULL, '2024-01-02') $q$,
+    'exec_missing_input');
+SELECT pg_temp.expect_error('exec: blank ticker ''   '' -> exec_missing_input',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Errors'), '   ', 'BUY', 1, '2024-01-02') $q$,
+    'exec_missing_input');
+SELECT pg_temp.expect_error('exec: NULL trade_type -> exec_missing_input',
+    $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Errors'), 'BALT', NULL, 1, '2024-01-02') $q$,
+    'exec_missing_input');
+SELECT pg_temp.check('exec: DETAIL lists every missing input ("Missing: shares, trade_date.")',
+    pg_temp.error_detail(
+        $q$ SELECT pg_temp.call_trade(pg_temp.pf('Exec Errors'), 'BALT', 'BUY', NULL, NULL) $q$)
+    = 'Missing: shares, trade_date.');
+SELECT pg_temp.check('exec: rejected CALLs left no trade rows (Exec Errors, Exec Index)',
+    NOT EXISTS (SELECT 1 FROM trade
+                WHERE portfolio_id IN (pg_temp.pf('Exec Errors'), pg_temp.pf('Exec Index'))));
+
+-- =====================================================================
 -- watchlist
 -- =====================================================================
 SELECT pg_temp.expect_ok('watchlist: valid insert',
