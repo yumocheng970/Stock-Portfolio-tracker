@@ -12,6 +12,7 @@
 -- Hide the empty result row each SELECT pg_temp.xxx(...) prints;
 -- the report at the end shows the results.
 \o /dev/null
+SET client_min_messages = warning;   -- hide NOTICEs (e.g. "truncate cascades to ...")
 BEGIN;
 
 -- ---------------------------------------------------------------------
@@ -306,6 +307,13 @@ SELECT pg_temp.expect_error('trg cash: direct DELETE rejected',
 SELECT pg_temp.check('trg cash: Bob''s deposit unchanged after rejected UPDATE/DELETE',
     (SELECT count(*) = 1 AND bool_and(amount = 250 AND txn_type = 'DEPOSIT')
      FROM cash_transaction WHERE portfolio_id = pg_temp.pf('Bob Growth')));
+SELECT pg_temp.expect_error('trg cash: TRUNCATE cash_transaction rejected',
+    $q$ TRUNCATE cash_transaction $q$, 'trg_cash_txn_no_truncate');
+-- Documents the trade-off: truncate triggers also fire on CASCADE targets
+SELECT pg_temp.expect_error('trg cash: TRUNCATE portfolio CASCADE also rejected',
+    $q$ TRUNCATE portfolio CASCADE $q$, 'trg_cash_txn_no_truncate');
+SELECT pg_temp.check('trg cash: cash rows still there after rejected TRUNCATEs',
+    (SELECT count(*) = 5 FROM cash_transaction));
 
 -- =====================================================================
 -- trade

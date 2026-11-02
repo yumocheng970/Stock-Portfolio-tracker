@@ -36,6 +36,10 @@ Done so far:
 - db/reset.sql: rebuilds everything in order (one transaction)
 - db/programmability/01_trade_validation.sql: trg_trade_validate (BEFORE INSERT OR UPDATE on trade):
   price in day's low..high, no INDEX, UPDATE only shares/price (ticker change allowed only via stock rename cascade)
+- db/programmability/02_cash_txn_immutable.sql (written by me): trg_cash_txn_immutable
+  (BEFORE UPDATE OR DELETE, row-level: rejects UPDATE and direct DELETE; allows cascade delete
+  when parent portfolio is already gone) and trg_cash_txn_no_truncate (BEFORE TRUNCATE,
+  statement-level; also blocks TRUNCATE portfolio/investor CASCADE, so cleanup must use DELETE)
 - db/tests/test_schema.sql: constraint/cascade/trigger tests (runs in a rolled-back transaction)
 Next: more triggers (db/programmability/)
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
