@@ -1,7 +1,11 @@
 -- =====================================================================
+-- Paper-Trading Portfolio Tracker  (CS 5200, Yumo Cheng)
 -- Programmability 2: cash transactions are insert-only
--- To fix a mistake, record an opposite transaction instead.
 -- Run AFTER db/schema/ files (normally via db/reset.sql)
+--
+-- trg_cash_txn_immutable   : blocks UPDATE and direct DELETE
+--                            (cascade deletes from portfolio still work)
+-- trg_cash_txn_no_truncate : blocks TRUNCATE
 -- To fix a mistake, record an opposite transaction instead.
 -- =====================================================================
 
@@ -12,20 +16,19 @@ AS $$
 BEGIN
 
     -- Exception: a DELETE caused by deleting the portfolio (ON DELETE CASCADE).
-       -- By the time this runs, the parent portfolio row is already gone.
+    -- By the time this runs, the parent portfolio row is already gone.
     IF TG_OP = 'DELETE'
         AND NOT EXISTS (SELECT 1 FROM portfolio
                 WHERE portfolio_id = OLD.portfolio_id) THEN
         RETURN OLD;
     END IF;
 
-
     RAISE EXCEPTION 'Cash transactions cannot be changed or deleted'
         USING ERRCODE    = 'check_violation',
-            CONSTRAINT = 'trg_cash_txn_immutable',
+            CONSTRAINT   = 'trg_cash_txn_immutable',
             DETAIL       = format('Cash transaction %s: %s of %s',
-                        OLD.cash_txn_id, OLD.txn_type, OLD.amount),
-            HINT        =   'Record an opposite transaction instead.';
+                                  OLD.cash_txn_id, OLD.txn_type, OLD.amount),
+            HINT         =   'Record an opposite transaction instead.';
 END;
 $$;
 
