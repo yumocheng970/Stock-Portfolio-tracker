@@ -9,6 +9,19 @@
 - Be direct; point out design problems.
 - Ask before running anything with sudo, DROP DATABASE, or deleting files.
 
+## How to report
+When you finish a step, reply in this order, and keep it short:
+1. STATUS (max 3 lines): what's done, test count, and the commit hash + commit message.
+2. NEEDS MY DECISION: only questions I must answer. Write "None" if there are none.
+3. NEXT: one line.
+Put the full explanation (how the code works, EN + 中文, with a tiny example) in a file
+docs/notes/<step-name>.md instead of the chat, and tell me the file name.
+
+Commit rules:
+- Commit at the end of every step, after all tests pass. Never commit failing tests.
+- Message format: one short summary line (what changed and why),
+  e.g. "Add v_cash_balance view and tests (fan-out safe)"
+
 ## Environment
 - WSL (Ubuntu) on Windows 11; Linux user `ethan`; conda `base` is active
 - Repo: ~/projects/5200/Stock-Portfolio-tracker (app/, db/, etl/, data/, docs/, tests/)
