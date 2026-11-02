@@ -23,6 +23,15 @@ Commit rules:
   e.g. "Add v_cash_balance view and tests (fan-out safe)"
 - No Co-Authored-By (or any other trailer) line: the message is only the summary line. Don't ask again.
 
+## How to plan
+Every plan must START with this short summary (max 10 lines), before any details:
+1. APPROACH: 2-3 lines, plain words.
+2. FILES: which files will be created or changed.
+3. EXISTING TESTS CHANGED: list each one and why, or "None".
+4. DECISIONS FOR ME: or "None".
+5. RISKS: anything that could break, or "None".
+Then the details.
+
 ## Environment
 - WSL (Ubuntu) on Windows 11; Linux user `ethan`; conda `base` is active
 - Repo: ~/projects/5200/Stock-Portfolio-tracker (app/, db/, etl/, data/, docs/, tests/)
