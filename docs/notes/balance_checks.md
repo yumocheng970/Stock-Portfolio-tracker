@@ -150,8 +150,8 @@ B:                        -> lock acquired; next query sees A's trade
 ## 7. Behaviour to mention in the report / 报告中值得说明的行为
 
 1. **Same day, cash before trades / 同一天现金优先于交易**
-   - **EN:** A withdrawal entered after a same-day SELL can't use that SELL's proceeds, because it's replayed before the SELL (test "WITHDRAWAL 2000 on d3 rejected").
-   - **中文：** 在同一天 SELL 之后录入的取款，不能使用这笔 SELL 的收入，因为重放时取款排在 SELL 前面（测试 "WITHDRAWAL 2000 on d3 rejected"）。
+   - **EN:** A withdrawal entered after a same-day SELL can't use that SELL's proceeds, because it's replayed before the SELL (test "WITHDRAWAL 2000 on d3 rejected"). **Decision: keep this rule.** It gives one fixed, simple order for every day.
+   - **中文：** 在同一天 SELL 之后录入的取款，不能使用这笔 SELL 的收入，因为重放时取款排在 SELL 前面（测试 "WITHDRAWAL 2000 on d3 rejected"）。**决定：保留这条规则**，每一天都有一个固定、简单的顺序。
 2. **Each statement is checked on its own / 每条语句单独检查**
    - **EN:** The check runs at the end of every statement, not at COMMIT. Two statements that are only valid together (for example, changing two trades one after the other) must be done in an order where each step is valid.
    - **中文：** 检查在每条语句结束时进行，而不是在 COMMIT 时。两条只有放在一起才合法的语句（例如先后修改两笔交易），必须按每一步都合法的顺序执行。

@@ -21,6 +21,7 @@ Commit rules:
 - Commit at the end of every step, after all tests pass. Never commit failing tests.
 - Message format: one short summary line (what changed and why),
   e.g. "Add v_cash_balance view and tests (fan-out safe)"
+- No Co-Authored-By (or any other trailer) line: the message is only the summary line. Don't ask again.
 
 ## Environment
 - WSL (Ubuntu) on Windows 11; Linux user `ethan`; conda `base` is active
@@ -82,8 +83,8 @@ Next: v_holdings, then execute_trade()
 - Cash = starting cash + deposits - withdrawals - buys + sells
 - portfolio has start_date (simulation start) separate from created_date; all trades/cash txns >= start_date
 - New trade/cash txn date >= portfolio's latest trade/cash txn date (>=, not >)
-- Same-day ordering: cash transactions before trades. Consequence: a withdrawal entered after a
-  same-day SELL can't use that SELL's proceeds (it is replayed before the SELL)
+- Same-day ordering: cash transactions before trades (DECIDED, keep). Consequence: a withdrawal
+  entered after a same-day SELL can't use that SELL's proceeds (it is replayed before the SELL)
 - Buy fails if not enough cash; sell fails if not enough shares; withdrawal fails if > cash
 - Trade price within that day's low/high; trade date must have price data
 - Row-level rules (price range, not INDEX, valid date) in BEFORE INSERT OR UPDATE trigger, not only in execute_trade()
