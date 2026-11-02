@@ -523,6 +523,89 @@ SELECT pg_temp.check('trg audit: trades still there after rejected TRUNCATE',
     EXISTS (SELECT 1 FROM trade));
 
 -- =====================================================================
+-- view v_cash_balance (db/views/01_v_cash_balance.sql)
+-- Fictional stock CASHT (own price rows, so AAPL row counts used by
+-- later tests are unchanged):
+--   2024-01-02: low 180.00, high 190.00    2024-01-03: low 185.00, high 195.00
+-- =====================================================================
+SELECT pg_temp.expect_ok('view cash: setup stock CASHT, prices and 3 portfolios',
+    $q$
+    INSERT INTO stock (ticker, company_name) VALUES ('CASHT', 'Cash Test Corp');
+    INSERT INTO daily_price VALUES
+        ('CASHT', '2024-01-02', 185.00, 190.00, 180.00, 186.00, 1000),
+        ('CASHT', '2024-01-03', 188.00, 195.00, 185.00, 190.00, 1000);
+    INSERT INTO portfolio (investor_id, portfolio_name, starting_cash, start_date) VALUES
+        (pg_temp.inv('alice@example.com'), 'Cash Empty',   25000.00, '2024-01-02'),
+        (pg_temp.inv('alice@example.com'), 'Cash Example', 100000.00, '2024-01-02'),
+        (pg_temp.inv('alice@example.com'), 'Cash Fanout',  50000.00, '2024-01-02');
+    $q$);
+
+-- No activity: balance = starting cash, parts are 0 (not NULL)
+SELECT pg_temp.check('view cash: no activity -> cash_balance = starting_cash (25000.00)',
+    (SELECT cash_balance = 25000.00 FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Cash Empty')));
+SELECT pg_temp.check('view cash: no activity -> all 4 parts are 0, not NULL',
+    (SELECT deposits = 0 AND withdrawals = 0 AND buys = 0 AND sells = 0
+     FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Cash Empty')));
+
+-- Worked example: 100000 + 5000 - 2000 - 10*186.00 + 5*190.00 = 102090.00
+SELECT pg_temp.expect_ok('view cash: setup example (deposit, withdrawal, BUY, SELL)',
+    $q$
+    INSERT INTO cash_transaction (portfolio_id, txn_type, amount, txn_date) VALUES
+        (pg_temp.pf('Cash Example'), 'DEPOSIT',    5000.00, '2024-01-02'),
+        (pg_temp.pf('Cash Example'), 'WITHDRAWAL', 2000.00, '2024-01-02');
+    INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Cash Example'), 'CASHT', 'BUY',  10, 186.00, '2024-01-02'),
+        (pg_temp.pf('Cash Example'), 'CASHT', 'SELL',  5, 190.00, '2024-01-03');
+    $q$);
+SELECT pg_temp.check('view cash: example -> parts 5000 / 2000 / 1860 / 950',
+    (SELECT deposits = 5000.00 AND withdrawals = 2000.00 AND buys = 1860.00 AND sells = 950.00
+     FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Cash Example')));
+SELECT pg_temp.check('view cash: example -> cash_balance = 102090.00',
+    (SELECT cash_balance = 102090.00 FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Cash Example')));
+
+-- Fan-out: 2 deposits x 3 trades. Correct: deposits 3000, buys 186+374 = 560,
+-- sells 190, balance 50000 + 3000 - 560 + 190 = 52630.00
+SELECT pg_temp.expect_ok('view cash: setup fan-out (2 deposits, 3 trades, no withdrawals)',
+    $q$
+    INSERT INTO cash_transaction (portfolio_id, txn_type, amount, txn_date) VALUES
+        (pg_temp.pf('Cash Fanout'), 'DEPOSIT', 1000.00, '2024-01-02'),
+        (pg_temp.pf('Cash Fanout'), 'DEPOSIT', 2000.00, '2024-01-02');
+    INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Cash Fanout'), 'CASHT', 'BUY',  1, 186.00, '2024-01-02'),
+        (pg_temp.pf('Cash Fanout'), 'CASHT', 'BUY',  2, 187.00, '2024-01-02'),
+        (pg_temp.pf('Cash Fanout'), 'CASHT', 'SELL', 1, 190.00, '2024-01-03');
+    $q$);
+SELECT pg_temp.check('view cash: fan-out -> deposits 3000 (not x3 = 9000)',
+    (SELECT deposits = 3000.00 FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Cash Fanout')));
+SELECT pg_temp.check('view cash: fan-out -> buys 560, sells 190 (not x2)',
+    (SELECT buys = 560.00 AND sells = 190.00
+     FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Cash Fanout')));
+SELECT pg_temp.check('view cash: fan-out -> withdrawals 0 when only deposits exist (FILTER gives NULL)',
+    (SELECT withdrawals = 0 FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Cash Fanout')));
+SELECT pg_temp.check('view cash: fan-out -> cash_balance = 52630.00',
+    (SELECT cash_balance = 52630.00 FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Cash Fanout')));
+-- Demonstrates the bug the view avoids: joining the raw tables
+SELECT pg_temp.check('view cash: (demo) naive raw join WOULD give deposits 9000, buys 1120',
+    (SELECT SUM(c.amount) = 9000.00
+            AND SUM(t.shares * t.price) FILTER (WHERE t.trade_type = 'BUY') = 1120.00
+     FROM portfolio p
+     JOIN cash_transaction c ON c.portfolio_id = p.portfolio_id
+     JOIN trade t            ON t.portfolio_id = p.portfolio_id
+     WHERE p.portfolio_name = 'Cash Fanout'));
+
+-- Whole view: exactly one row per portfolio, never a NULL balance
+SELECT pg_temp.check('view cash: one row per portfolio, no NULL cash_balance',
+    (SELECT count(*) FROM v_cash_balance) = (SELECT count(*) FROM portfolio)
+    AND (SELECT count(DISTINCT portfolio_id) FROM v_cash_balance) = (SELECT count(*) FROM portfolio)
+    AND NOT EXISTS (SELECT 1 FROM v_cash_balance WHERE cash_balance IS NULL));
+-- The view reflects later changes (it is computed on every read)
+SELECT pg_temp.expect_ok('view cash: UPDATE a trade price (186.00 -> 185.00)',
+    $q$ UPDATE trade SET price = 185.00
+        WHERE portfolio_id = pg_temp.pf('Cash Example') AND trade_type = 'BUY' $q$);
+SELECT pg_temp.check('view cash: balance follows the update (+10.00 -> 102100.00)',
+    (SELECT cash_balance = 102100.00 FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Cash Example')));
+
+-- =====================================================================
 -- watchlist
 -- =====================================================================
 SELECT pg_temp.expect_ok('watchlist: valid insert',

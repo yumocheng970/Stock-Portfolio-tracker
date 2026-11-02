@@ -18,7 +18,8 @@ BEGIN;
 \ir schema/01_reference_tables.sql
 \ir schema/02_portfolio_tables.sql
 
--- Views (db/views/) go here
+-- Views (before programmability: functions/triggers will use them)
+\ir views/01_v_cash_balance.sql
 
 -- Functions, procedures, triggers
 \ir programmability/01_trade_validation.sql

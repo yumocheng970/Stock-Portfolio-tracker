@@ -44,8 +44,14 @@ Done so far:
   UPDATE OR DELETE, row-level: copies OLD row into trade_audit, so only changes that actually
   happen are logged (rejected/cancelled ones never reach it). Cascade deletes and ticker renames
   are audited too. trg_trade_no_truncate (BEFORE TRUNCATE) because TRUNCATE skips row triggers.
-- db/tests/test_schema.sql: constraint/cascade/trigger tests (runs in a rolled-back transaction)
-Next: more triggers (db/programmability/)
+- db/views/01_v_cash_balance.sql: v_cash_balance, one row per portfolio: starting_cash, deposits,
+  withdrawals, buys, sells, cash_balance. Each child table pre-aggregated per portfolio (CTE),
+  then LEFT JOINed (no fan-out); COALESCE turns missing parts into 0. Shows CURRENT balance
+  (all rows, any date). WHERE portfolio_id = X is pushed into both CTEs and uses
+  idx_trade_portfolio_date / idx_cash_portfolio_date.
+  Views load in reset.sql BEFORE programmability: trigger 2d and execute_trade() will reuse this view
+- db/tests/test_schema.sql: constraint/cascade/trigger/view tests (runs in a rolled-back transaction)
+Next: v_holdings, then trigger 2d (cash/shares checks) and execute_trade()
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 
