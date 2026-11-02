@@ -28,5 +28,6 @@ BEGIN;
 \ir programmability/03_trade_audit.sql
 \ir programmability/04_balance_checks.sql
 \ir programmability/05_execute_trade.sql
+\ir programmability/06_record_cash_transaction.sql
 
 COMMIT;

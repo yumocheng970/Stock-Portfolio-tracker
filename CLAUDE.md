@@ -48,7 +48,8 @@ Then the details.
   Every new schema/view/programmability file must be added to db/reset.sql.
 - Python connects via etl/db.py using .env (git-ignored; template .env.example). Default is the
   Unix socket DB_HOST=/var/run/postgresql with peer auth (conda's libpq looks in /tmp otherwise).
-- Run ETL as modules from the repo root: `python -m etl.load_prices` (or `make load-prices`)
+- Run ETL as modules from the repo root: `python -m etl.load_prices` (or `make load-prices`),
+  `python -m etl.seed_sample_data [--replace]` (or `make seed` / `make reseed`)
 - Never write the DB password in code or commit it; read it from a git-ignored .env file
 - DBeaver (Windows) connects via localhost:5432
 - Final deliverable: `cheng_final_project.sql` (pg_dump: DDL, data, functions, procedures, triggers)
@@ -106,7 +107,17 @@ Done so far:
   insert-only: downloads dates after the last stored one + ON CONFLICT DO NOTHING; rows breaking a
   CHECK are skipped and logged; one transaction per ticker), tests/test_clean_prices.py (pytest),
   db/tests/check_prices.sql (read-only checks on the real DB, `make check-prices`), Makefile
-Next: ETL B (sample investors/portfolios/trades with Faker), then the Python CLI app
+- db/programmability/06_record_cash_transaction.sql: PROCEDURE record_cash_transaction(portfolio_id,
+  txn_type, amount, txn_date, INOUT cash_txn_id), same style as execute_trade (exec_missing_input).
+- ETL B (sample users): etl/simulate.py (pure; walks each portfolio forward: BUY only what cash allows,
+  SELL only what is held, cash before trades same day), etl/seed_sample_data.py (seed 5200, Faker
+  40.40.0, SIM_END 2026-10-30; 15 investors, 1-3 portfolios, 20-60 trades via CALL execute_trade with
+  NULL price, cash via CALL record_cash_transaction, watchlists, audit demo on each portfolio's LAST
+  trade; ONE transaction: any DB rejection rolls back everything). tests/test_simulate.py,
+  db/tests/check_sample_data.sql (read-only + fingerprint). `make seed` refuses if investors exist;
+  `make reseed` (--replace) deletes all investors, clears trade_audit and RESTARTs identity ids
+  (DECIDED: so reruns are identical, ids included)
+Next: the Python CLI app
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

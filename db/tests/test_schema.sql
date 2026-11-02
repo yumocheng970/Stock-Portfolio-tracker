@@ -1115,6 +1115,83 @@ SELECT pg_temp.check('exec: rejected CALLs left no trade rows (Exec Errors, Exec
                 WHERE portfolio_id IN (pg_temp.pf('Exec Errors'), pg_temp.pf('Exec Index'))));
 
 -- =====================================================================
+-- procedure record_cash_transaction (db/programmability/06_record_cash_transaction.sql)
+-- =====================================================================
+
+-- Test helper: CALL the procedure and return its INOUT cash_txn_id
+CREATE FUNCTION pg_temp.call_cash(p_pf INTEGER, p_type TEXT, p_amount NUMERIC, p_date DATE)
+RETURNS INTEGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_id INTEGER;
+BEGIN
+    CALL record_cash_transaction(p_pf, p_type, p_amount, p_date, v_id);
+    RETURN v_id;
+END $$;
+
+CREATE TEMP TABLE cash_ids (label TEXT, cash_txn_id INTEGER);
+
+SELECT pg_temp.expect_ok('rcash: setup portfolios Rcash Main (1000), Rcash Errors (1000)',
+    $q$ INSERT INTO portfolio (investor_id, portfolio_name, starting_cash, start_date)
+        SELECT pg_temp.inv('alice@example.com'), name, 1000, '2024-01-02'
+        FROM unnest(ARRAY['Rcash Main', 'Rcash Errors']) AS name $q$);
+
+-- Success ------------------------------------------------------------------
+SELECT pg_temp.expect_ok('rcash: DEPOSIT 500 on 01-02 with input '' deposit ''',
+    $q$ INSERT INTO cash_ids
+        SELECT 'deposit', pg_temp.call_cash(pg_temp.pf('Rcash Main'), ' deposit ', 500, '2024-01-02') $q$);
+SELECT pg_temp.check('rcash: returned id is the new row DEPOSIT / 500.00 / 01-02 (normalized)',
+    (SELECT c.portfolio_id = pg_temp.pf('Rcash Main') AND c.txn_type = 'DEPOSIT'
+            AND c.amount = 500.00 AND c.txn_date = '2024-01-02'
+     FROM cash_ids i JOIN cash_transaction c ON c.cash_txn_id = i.cash_txn_id
+     WHERE i.label = 'deposit'));
+SELECT pg_temp.expect_ok('rcash: plain CALL statement works (WITHDRAWAL 200 on 01-03)',
+    $q$ CALL record_cash_transaction(pg_temp.pf('Rcash Main'), 'withdrawal', 200, '2024-01-03', NULL) $q$);
+SELECT pg_temp.check('rcash: v_cash_balance = 1000 + 500 - 200 = 1300.00',
+    (SELECT cash_balance = 1300.00 AND deposits = 500 AND withdrawals = 200
+     FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Rcash Main')));
+
+-- Errors from triggers / constraints pass through unchanged -----------------
+SELECT pg_temp.expect_error('rcash: WITHDRAWAL > cash -> trg_cash_never_negative',
+    $q$ SELECT pg_temp.call_cash(pg_temp.pf('Rcash Main'), 'WITHDRAWAL', 1300.01, '2024-01-03') $q$,
+    'trg_cash_never_negative');
+SELECT pg_temp.expect_error('rcash: date before the latest event -> trg_date_before_latest',
+    $q$ SELECT pg_temp.call_cash(pg_temp.pf('Rcash Main'), 'DEPOSIT', 1, '2024-01-02') $q$,
+    'trg_date_before_latest');
+SELECT pg_temp.expect_error('rcash: date before start_date -> trg_date_before_start',
+    $q$ SELECT pg_temp.call_cash(pg_temp.pf('Rcash Errors'), 'DEPOSIT', 1, '2023-12-29') $q$,
+    'trg_date_before_start');
+SELECT pg_temp.expect_error('rcash: future date -> trg_cash_txn_future_date',
+    $q$ SELECT pg_temp.call_cash(pg_temp.pf('Rcash Errors'), 'DEPOSIT', 1, CURRENT_DATE + 1) $q$,
+    'trg_cash_txn_future_date');
+SELECT pg_temp.expect_error('rcash: txn_type ''transfer'' -> chk_cash_txn_type',
+    $q$ SELECT pg_temp.call_cash(pg_temp.pf('Rcash Errors'), 'transfer', 1, '2024-01-02') $q$,
+    'chk_cash_txn_type');
+SELECT pg_temp.expect_error('rcash: amount 0 -> chk_cash_amount_positive',
+    $q$ SELECT pg_temp.call_cash(pg_temp.pf('Rcash Errors'), 'DEPOSIT', 0, '2024-01-02') $q$,
+    'chk_cash_amount_positive');
+SELECT pg_temp.expect_error('rcash: deposit > 10,000,000 -> chk_cash_deposit_cap',
+    $q$ SELECT pg_temp.call_cash(pg_temp.pf('Rcash Errors'), 'DEPOSIT', 10000000.01, '2024-01-02') $q$,
+    'chk_cash_deposit_cap');
+SELECT pg_temp.expect_error('rcash: unknown portfolio -> fk_cash_portfolio',
+    $q$ SELECT pg_temp.call_cash(-1, 'DEPOSIT', 1, '2024-01-02') $q$,
+    'fk_cash_portfolio');
+
+-- Error added by the procedure ----------------------------------------------
+SELECT pg_temp.expect_error('rcash: NULL amount -> exec_missing_input',
+    $q$ SELECT pg_temp.call_cash(pg_temp.pf('Rcash Errors'), 'DEPOSIT', NULL, '2024-01-02') $q$,
+    'exec_missing_input');
+SELECT pg_temp.expect_error('rcash: blank txn_type ''  '' -> exec_missing_input',
+    $q$ SELECT pg_temp.call_cash(pg_temp.pf('Rcash Errors'), '  ', 1, '2024-01-02') $q$,
+    'exec_missing_input');
+SELECT pg_temp.check('rcash: DETAIL lists every missing input ("Missing: portfolio_id, txn_date.")',
+    pg_temp.error_detail(
+        $q$ SELECT pg_temp.call_cash(NULL, 'DEPOSIT', 1, NULL) $q$)
+    = 'Missing: portfolio_id, txn_date.');
+SELECT pg_temp.check('rcash: rejected CALLs left no rows (Rcash Errors has none, Rcash Main has 2)',
+    NOT EXISTS (SELECT 1 FROM cash_transaction WHERE portfolio_id = pg_temp.pf('Rcash Errors'))
+    AND (SELECT count(*) = 2 FROM cash_transaction WHERE portfolio_id = pg_temp.pf('Rcash Main')));
+
+-- =====================================================================
 -- watchlist
 -- =====================================================================
 SELECT pg_temp.expect_ok('watchlist: valid insert',
