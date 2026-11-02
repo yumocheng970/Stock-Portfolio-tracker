@@ -1192,6 +1192,164 @@ SELECT pg_temp.check('rcash: rejected CALLs left no rows (Rcash Errors has none,
     AND (SELECT count(*) = 2 FROM cash_transaction WHERE portfolio_id = pg_temp.pf('Rcash Main')));
 
 -- =====================================================================
+-- analysis queries 2-5 (db/analysis/)
+-- Fictional tickers with prices only in 2025, so no other test data is
+-- in these periods:
+--   query 3: AN1-AN4, AN8 on 2025-02-03 .. 02-07 (open = close, range 50..200)
+--   queries 2/4/5: AN5-AN7, AW1-AW3 on 2025-03-03 .. 03-07 (d1 .. d5)
+-- 2025-03-07 becomes the latest price date in the test DB (the default).
+-- =====================================================================
+SELECT pg_temp.expect_ok('ana: setup sectors, stocks, prices, portfolios, trades, watchlist',
+    $q$
+    INSERT INTO sector (sector_name) VALUES ('AnaSec A'), ('AnaSec B');
+    INSERT INTO stock (ticker, company_name, sector_id)
+    SELECT t, 'Analysis Test ' || t,
+           CASE t WHEN 'AN6' THEN (SELECT sector_id FROM sector WHERE sector_name = 'AnaSec A')
+                  WHEN 'AN7' THEN (SELECT sector_id FROM sector WHERE sector_name = 'AnaSec B') END
+    FROM unnest(ARRAY['AN1','AN2','AN3','AN4','AN5','AN6','AN7','AN8','AW1','AW2','AW3']) AS t;
+
+    -- query 3: first day close 100, last day as below, days between 100
+    INSERT INTO daily_price
+    SELECT v.t, d::date, c, 200, 50, c, 1000
+    FROM (VALUES ('AN1', 150), ('AN2', 80), ('AN3', 100), ('AN4', 150), ('AN8', 130)) AS v(t, last_close)
+    CROSS JOIN generate_series('2025-02-03'::date, '2025-02-07'::date, '1 day') AS d
+    CROSS JOIN LATERAL (SELECT CASE WHEN d = '2025-02-07' THEN v.last_close ELSE 100 END AS c) x;
+
+    -- query 4: AN5 closes 100, 150, 200, 180, 170 on d1..d5
+    INSERT INTO daily_price
+    SELECT 'AN5', d::date, c, 210, 90, c, 1000
+    FROM (VALUES ('2025-03-03', 100), ('2025-03-04', 150), ('2025-03-05', 200),
+                 ('2025-03-06', 180), ('2025-03-07', 170)) AS v(d, c);
+    -- query 2: AN6 flat 100 (sector A), AN7 flat 300 (sector B); query 5: AW1-AW3 flat 95
+    INSERT INTO daily_price
+    SELECT v.t, d::date, v.c, v.c + 10, v.c - 10, v.c, 1000
+    FROM (VALUES ('AN6', 100), ('AN7', 300), ('AW1', 95), ('AW2', 95), ('AW3', 95)) AS v(t, c)
+    CROSS JOIN generate_series('2025-03-03'::date, '2025-03-07'::date, '1 day') AS d;
+
+    INSERT INTO portfolio (investor_id, portfolio_name, starting_cash, start_date)
+    SELECT pg_temp.inv('alice@example.com'), v.name, v.cash, '2025-03-03'
+    FROM (VALUES ('Ana PL', 100000), ('Ana Alloc', 10000), ('Ana Closed', 10000)) AS v(name, cash);
+
+    INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Ana PL'),     'AN5', 'BUY',  10, 100, '2025-03-03'),
+        (pg_temp.pf('Ana PL'),     'AN5', 'SELL',  5, 150, '2025-03-04'),
+        (pg_temp.pf('Ana PL'),     'AN5', 'BUY',   5, 200, '2025-03-05'),
+        (pg_temp.pf('Ana Alloc'),  'AN6', 'BUY',  20, 100, '2025-03-03'),
+        (pg_temp.pf('Ana Alloc'),  'AN7', 'BUY',  10, 300, '2025-03-03'),
+        (pg_temp.pf('Ana Closed'), 'AN6', 'BUY',  10, 100, '2025-03-03'),
+        (pg_temp.pf('Ana Closed'), 'AN6', 'SELL', 10, 105, '2025-03-04');
+
+    INSERT INTO watchlist (investor_id, watchlist_name) VALUES (pg_temp.inv('alice@example.com'), 'Ana Watch');
+    INSERT INTO watchlist_item (watchlist_id, ticker, target_price) VALUES
+        (pg_temp.wl('Ana Watch'), 'AW1', 90),
+        (pg_temp.wl('Ana Watch'), 'AW2', 100),
+        (pg_temp.wl('Ana Watch'), 'AW3', NULL);
+    $q$);
+
+-- Query 4: fn_holding_pl ------------------------------------------------------
+-- BUY 10 @ 100, SELL 5 @ 150, BUY 5 @ 200; close 180 on 2025-03-06
+SELECT pg_temp.check('q4: as of d4 -> shares 10, cost 1500, unrealized 300.00, realized 250.00',
+    (SELECT shares_held = 10 AND avg_cost = 150.00 AND cost_basis = 1500.00
+            AND close = 180 AND market_value = 1800 AND unrealized_pl = 300.00
+            AND realized_pl = 250.00 AND total_pl = 550.00
+     FROM fn_holding_pl(pg_temp.pf('Ana PL'), '2025-03-06')));
+SELECT pg_temp.check('q4: as of d2 (before the 2nd BUY) -> shares 5, cost 500, close 150, realized 250',
+    (SELECT shares_held = 5 AND cost_basis = 500.00 AND close = 150
+            AND unrealized_pl = 250.00 AND realized_pl = 250.00
+     FROM fn_holding_pl(pg_temp.pf('Ana PL'), '2025-03-04')));
+SELECT pg_temp.check('q4: as of d1 (before the SELL) -> shares 10, cost 1000, realized 0',
+    (SELECT shares_held = 10 AND cost_basis = 1000.00 AND realized_pl = 0
+     FROM fn_holding_pl(pg_temp.pf('Ana PL'), '2025-03-03')));
+SELECT pg_temp.check('q4: as of a date before the first trade -> no rows',
+    NOT EXISTS (SELECT 1 FROM fn_holding_pl(pg_temp.pf('Ana PL'), '2025-02-28')));
+SELECT pg_temp.check('q4: closed position kept: shares 0, avg NULL, cost 0, unrealized 0, realized 50.00',
+    (SELECT shares_held = 0 AND avg_cost IS NULL AND cost_basis = 0 AND market_value = 0
+            AND unrealized_pl = 0 AND realized_pl = 50.00
+     FROM fn_holding_pl(pg_temp.pf('Ana Closed'))));
+SELECT pg_temp.check('q4: default date = latest price date (2025-03-07)',
+    (SELECT array_agg(h ORDER BY h.ticker) FROM fn_holding_pl(pg_temp.pf('Ana PL')) h)
+    = (SELECT array_agg(h ORDER BY h.ticker) FROM fn_holding_pl(pg_temp.pf('Ana PL'), '2025-03-07') h));
+SELECT pg_temp.check('q4: default date matches v_holdings (shares, avg, cost basis, realized)',
+    NOT EXISTS (
+        SELECT 1 FROM fn_holding_pl() f
+        FULL JOIN v_holdings v ON v.portfolio_id = f.portfolio_id AND v.ticker = f.ticker
+        WHERE (f.shares_held, f.avg_cost, f.cost_basis, f.realized_pl)
+              IS DISTINCT FROM (v.shares_held, v.avg_cost, v.cost_basis, v.realized_pl)));
+
+-- Query 3: fn_top_movers ------------------------------------------------------
+-- AN1 +50%, AN4 +50% (tie), AN8 +30%, AN3 0%, AN2 -20%
+SELECT pg_temp.check('q3: GAINER AN1 & AN4 tied at rank 1, AN8 rank 3 (RANK skips 2); LOSER AN2 rank 1',
+    (SELECT array_agg(direction || ' ' || rank || ' ' || ticker || ' ' || pct_change
+                      ORDER BY direction, rank, ticker)
+     FROM fn_top_movers('2025-02-03', '2025-02-07'))
+    = ARRAY['GAINER 1 AN1 50.00', 'GAINER 1 AN4 50.00', 'GAINER 3 AN8 30.00', 'LOSER 1 AN2 -20.00']);
+SELECT pg_temp.check('q3: 0% stock (AN3) is neither gainer nor loser',
+    NOT EXISTS (SELECT 1 FROM fn_top_movers('2025-02-03', '2025-02-07') WHERE ticker = 'AN3'));
+SELECT pg_temp.check('q3: p_limit 1 keeps BOTH tied gainers, drops rank 3',
+    (SELECT array_agg(ticker ORDER BY ticker) FROM fn_top_movers('2025-02-03', '2025-02-07', 1)
+     WHERE direction = 'GAINER') = ARRAY['AN1', 'AN4']::VARCHAR[]);
+SELECT pg_temp.check('q3: start/end are the first and last close inside the period',
+    (SELECT start_date = '2025-02-03' AND start_close = 100 AND end_date = '2025-02-07' AND end_close = 150
+     FROM fn_top_movers('2025-02-01', '2025-02-09') WHERE ticker = 'AN1'));
+SELECT pg_temp.check('q3: a one-day period has no movers (needs two different days)',
+    NOT EXISTS (SELECT 1 FROM fn_top_movers('2025-02-07', '2025-02-07')));
+SELECT pg_temp.check('q3: the index ^GSPC is never listed',
+    NOT EXISTS (SELECT 1 FROM fn_top_movers('2000-01-01') WHERE ticker = '^GSPC'));
+
+-- Query 2: fn_sector_allocation -------------------------------------------------
+-- start 10000; BUY 20 AN6 @ 100 (A), BUY 10 AN7 @ 300 (B) -> 2000 / 3000 / cash 5000
+SELECT pg_temp.check('q2: AnaSec B 30.00, AnaSec A 20.00, Cash 50.00 (in that order)',
+    (SELECT array_agg(sector_name || ' ' || market_value || ' ' || pct ORDER BY ord)
+     FROM fn_sector_allocation(pg_temp.pf('Ana Alloc'), '2025-03-07') WITH ORDINALITY AS a(portfolio_id, portfolio_name, as_of, sector_name, market_value, pct, ord))
+    = ARRAY['AnaSec B 3000.00 30.00', 'AnaSec A 2000.00 20.00', 'Cash 5000.00 50.00']);
+SELECT pg_temp.check('q2: percentages of one portfolio sum to 100%',
+    (SELECT sum(pct) = 100.00 FROM fn_sector_allocation(pg_temp.pf('Ana Alloc'), '2025-03-07')));
+SELECT pg_temp.check('q2: p_include_cash false -> stocks only, A 40.00, B 60.00',
+    (SELECT array_agg(sector_name || ' ' || pct ORDER BY sector_name)
+     FROM fn_sector_allocation(pg_temp.pf('Ana Alloc'), '2025-03-07', false))
+    = ARRAY['AnaSec A 40.00', 'AnaSec B 60.00']);
+SELECT pg_temp.check('q2: as of a date before the portfolio starts -> no rows',
+    NOT EXISTS (SELECT 1 FROM fn_sector_allocation(pg_temp.pf('Ana Alloc'), '2025-02-28')));
+SELECT pg_temp.check('q2: every portfolio with value > 0 sums to 100% (+-0.05 rounding)',
+    NOT EXISTS (SELECT 1 FROM fn_sector_allocation()
+                GROUP BY portfolio_id
+                HAVING sum(market_value) > 0 AND abs(sum(pct) - 100) > 0.05));
+SELECT pg_temp.check('q2: portfolio worth 0 (all cash withdrawn) -> Cash 0, pct NULL, no error',
+    (SELECT count(*) = 1 AND bool_and(sector_name = 'Cash' AND market_value = 0 AND pct IS NULL)
+     FROM fn_sector_allocation(pg_temp.pf('Bal Withdraw'))));
+SELECT pg_temp.check('q2: Cash row = v_cash_balance (portfolios with no events after the latest price date)',
+    NOT EXISTS (SELECT 1 FROM fn_sector_allocation() a
+                JOIN v_cash_balance v ON v.portfolio_id = a.portfolio_id
+                WHERE a.sector_name = 'Cash' AND a.market_value <> v.cash_balance
+                  AND NOT EXISTS (SELECT 1 FROM cash_transaction c
+                                  WHERE c.portfolio_id = a.portfolio_id AND c.txn_date > a.as_of)));
+-- Documents the default: as_of = latest PRICE date, so a cash transaction
+-- dated later (Bal Dates has a 1.00 deposit dated CURRENT_DATE) isn't counted.
+SELECT pg_temp.check('q2: default as_of ignores a deposit dated after the latest price date (Bal Dates 9701 vs 9702)',
+    (SELECT a.market_value = 9701.00 AND v.cash_balance = 9702.00
+     FROM fn_sector_allocation(pg_temp.pf('Bal Dates')) a
+     JOIN v_cash_balance v ON v.portfolio_id = a.portfolio_id
+     WHERE a.sector_name = 'Cash'));
+
+-- Query 5: fn_watchlist_targets_reached ------------------------------------------
+-- AW1/AW2/AW3 close 95; targets 90 / 100 / NULL
+SELECT pg_temp.check('q5: target 90 with close 95 appears, 5.56% above target',
+    (SELECT count(*) = 1 AND bool_and(target_price = 90 AND latest_close = 95 AND pct_above_target = 5.56)
+     FROM fn_watchlist_targets_reached(pg_temp.inv('alice@example.com'), '2025-03-07')
+     WHERE watchlist_name = 'Ana Watch' AND ticker = 'AW1'));
+SELECT pg_temp.check('q5: target 100 with close 95 does not appear; NULL target never appears',
+    NOT EXISTS (SELECT 1 FROM fn_watchlist_targets_reached(pg_temp.inv('alice@example.com'), '2025-03-07')
+                WHERE ticker IN ('AW2', 'AW3'))
+    AND NOT EXISTS (SELECT 1 FROM fn_watchlist_targets_reached() WHERE target_price IS NULL));
+SELECT pg_temp.check('q5: default date = latest price date',
+    (SELECT array_agg(r ORDER BY r.watchlist_id, r.ticker) FROM fn_watchlist_targets_reached() r)
+    = (SELECT array_agg(r ORDER BY r.watchlist_id, r.ticker) FROM fn_watchlist_targets_reached(NULL, '2025-03-07') r));
+
+-- Remove the analysis watchlist again: a later FK test counts all watchlist items
+SELECT pg_temp.expect_ok('ana: cleanup watchlist Ana Watch (cascades to its 3 items)',
+    $q$ DELETE FROM watchlist WHERE watchlist_name = 'Ana Watch' $q$);
+
+-- =====================================================================
 -- watchlist
 -- =====================================================================
 SELECT pg_temp.expect_ok('watchlist: valid insert',

@@ -46,8 +46,10 @@ Then the details.
   db/tests/test_schema.sql exits non-zero if any test fails.
 - Always rebuild with reset.sql (drops ALL data): `psql <db> -f db/reset.sql`. On portfolio_tracker
   that wipes the loaded prices: re-run `make load-prices` afterwards.
+- New views/functions/triggers/analysis reach the REAL DB with `make apply-db` (db/apply.sql),
+  never reset.sql. New idempotent object files go in db/apply.sql (reset.sql includes it).
   Never run schema files one at a time: 01 alone silently drops Part 2's FKs.
-  Every new schema/view/programmability file must be added to db/reset.sql.
+  New TABLE files go in db/reset.sql; every other new file goes in db/apply.sql.
 - Python connects via etl/db.py using .env (git-ignored; template .env.example). Default is the
   Unix socket DB_HOST=/var/run/postgresql with peer auth (conda's libpq looks in /tmp otherwise).
 - Run ETL as modules from the repo root: `python -m etl.load_prices` (or `make load-prices`),
@@ -119,7 +121,14 @@ Done so far:
   db/tests/check_sample_data.sql (read-only + fingerprint). `make seed` refuses if investors exist;
   `make reseed` (--replace) deletes all investors, clears trade_audit and RESTARTs identity ids
   (DECIDED: so reruns are identical, ids included)
-Next: the Python CLI app
+- db/apply.sql: idempotent objects only (views, programmability, analysis, indexes), included by
+  reset.sql; `make apply-db` applies it to portfolio_tracker in one transaction, data untouched.
+- db/analysis/: 00_indexes.sql (idx_daily_price_date for max(price_date) defaults),
+  fn_sector_allocation(portfolio, as_of, include_cash) [Q2, cash row by default],
+  fn_top_movers(start, end, limit) [Q3, RANK, ties kept, gainers > 0 / losers < 0],
+  fn_holding_pl(portfolio, as_of) [Q4, trades up to as_of via fn_position_history],
+  fn_watchlist_targets_reached(investor, as_of) [Q5]. NULL date = latest price date.
+Next: analysis query 1 (monthly return vs S&P 500), then the Python CLI app
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

@@ -2,7 +2,9 @@
 -- Paper-Trading Portfolio Tracker  (CS 5200, Yumo Cheng)
 -- Rebuild the whole database from scratch, in the correct order.
 -- WARNING: drops every table, so ALL DATA IS LOST.
--- Run from anywhere:  psql portfolio_tracker -f db/reset.sql
+-- Run from anywhere:  psql portfolio_tracker_test -f db/reset.sql
+-- To add new views/functions to portfolio_tracker WITHOUT losing data,
+-- use `make apply-db` (db/apply.sql) instead.
 -- =====================================================================
 
 -- Stop at the first error instead of running the remaining files.
@@ -18,16 +20,8 @@ BEGIN;
 \ir schema/01_reference_tables.sql
 \ir schema/02_portfolio_tables.sql
 
--- Views (before programmability: functions/triggers will use them)
-\ir views/01_v_cash_balance.sql
-\ir views/02_v_holdings.sql
-
--- Functions, procedures, triggers
-\ir programmability/01_trade_validation.sql
-\ir programmability/02_cash_txn_immutable.sql
-\ir programmability/03_trade_audit.sql
-\ir programmability/04_balance_checks.sql
-\ir programmability/05_execute_trade.sql
-\ir programmability/06_record_cash_transaction.sql
+-- Everything without data (views, functions, triggers, analysis, indexes).
+-- The same list `make apply-db` uses on the real database.
+\ir apply.sql
 
 COMMIT;

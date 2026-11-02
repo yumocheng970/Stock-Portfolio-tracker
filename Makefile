@@ -2,6 +2,8 @@
 # Python commands need the conda env:  conda activate spt
 #
 #   make test           rebuild the TEST database, run SQL tests + pytest
+#   make apply-db       add/replace views, functions, triggers, analysis, indexes
+#                       in portfolio_tracker (db/apply.sql; no data is touched)
 #   make load-prices    load/refresh real prices into portfolio_tracker
 #   make check-prices   read-only checks on the loaded prices
 #   make seed           add sample users to portfolio_tracker (refuses if any exist)
@@ -16,7 +18,7 @@ REAL_DB ?= portfolio_tracker
 PYTHON  ?= python
 PSQL     = psql -X -q -v ON_ERROR_STOP=1
 
-.PHONY: test test-db test-sql test-py load-prices check-prices seed reseed check-sample-data
+.PHONY: test test-db test-sql test-py apply-db load-prices check-prices seed reseed check-sample-data
 
 test: test-sql test-py
 
@@ -30,6 +32,10 @@ test-sql: test-db
 
 test-py:
 	$(PYTHON) -m pytest -q
+
+# All or nothing: one transaction around the whole of db/apply.sql
+apply-db:
+	$(PSQL) --single-transaction -d $(REAL_DB) -f db/apply.sql
 
 load-prices:
 	$(PYTHON) -m etl.load_prices

@@ -18,6 +18,14 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - Price loader: insert-only (download after the last stored date + `ON CONFLICT DO NOTHING`), and up to **yesterday**, because today's bar may still change and could never be corrected later.
 - Sample data: one transaction for the whole seed (any rejection rolls everything back). `--replace` also clears `trade_audit` and restarts the ids, so reruns are identical.
 
+### Analysis queries 2–5
+- **Analysis as SQL functions** (`db/analysis/`, `LANGUAGE sql STABLE`, defaulted parameters): Python only calls `SELECT * FROM fn_…()`, and the SQL stays in the DB, where it's tested (26 SQL tests on fictional data).
+- **Query 2: cash is its own row** by default, so the percentages are of the whole portfolio. Without it, a mostly-cash portfolio would look fully invested. `p_include_cash => false` gives the stocks-only split.
+- **Query 3: RANK() with ties kept** (`rank <= 5` can return more than 5 rows), instead of ROW_NUMBER (an arbitrary tie-break) or DENSE_RANK (no skipped ranks). Ranking uses the exact % (rounded only for display). Gainers must be > 0% and losers < 0%.
+- **Query 4: "as of" uses only trades up to that date** (`fn_position_history`), not `v_holdings` (always all trades), so a past date isn't mixed with later trades. At the latest date the results equal `v_holdings`.
+- **Secondary index `daily_price(price_date)`:** the global "latest price date" default can't use the PK `(ticker, price_date)`, where price_date is the second column. Measured on 38,064 rows: Seq Scan 1.98 ms → Index Only Scan reading 1 row, 0.10 ms. Per-ticker "latest close ≤ date" lookups already use the PK, so they need no index.
+- **`db/apply.sql` split from `db/reset.sql`:** objects without data (views, functions, triggers, analysis, indexes) are idempotent and listed once. `reset.sql` includes the list after creating the tables; `make apply-db` applies it to the real DB in one transaction without touching data (the fingerprint was unchanged).
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -28,6 +36,9 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - TRUNCATE is blocked on `trade` and `cash_transaction`, because row-level triggers don't fire on TRUNCATE. Cleanup must use `DELETE`, and this also blocks `TRUNCATE portfolio/investor CASCADE`.
 - The balance replay runs once per changed row, so a multi-row statement (e.g. a ticker rename over many trades) replays the same portfolio several times.
 - Reproducible sample data depends on the Faker version (40.40.0) and on the price data up to the fixed `SIM_END` (2026-10-30).
+- The analysis functions default to the latest **price** date. Prices load only up to yesterday, so a cash transaction dated today isn't counted by query 2 until the next price load.
+- `make apply-db` uses `CREATE OR REPLACE`, which can't change a function's return columns. That change needs a manual `DROP FUNCTION` first.
+- Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.
 
 ## Technical expertise gained
 
