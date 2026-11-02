@@ -10,36 +10,45 @@ Files in `db/analysis/`:
 | `04_holding_pl.sql` | `fn_holding_pl(portfolio_id, as_of)` | 4 |
 | `05_watchlist_targets.sql` | `fn_watchlist_targets_reached(investor_id, as_of)` | 5 |
 
-**EN:** Every parameter after the first can be omitted. A NULL date means **the latest price date**, and a NULL id means **all**.
-**中文：** 第一个之后的参数都可以省略。日期为 NULL 表示**最新的价格日期**，id 为 NULL 表示**全部**。
+**EN:** Every parameter after the first can be omitted. A NULL date means **today** (`CURRENT_DATE`), and a NULL id means **all**. Closes are always the latest close on or before that date, so with the default you get the latest price loaded (yesterday's close), while today's cash transactions still count.
+**中文：** 第一个之后的参数都可以省略。日期为 NULL 表示**今天**（`CURRENT_DATE`），id 为 NULL 表示**全部**。收盘价总是取该日期当天或之前的最新收盘价，所以使用默认值时得到已加载的最新价格（昨天的收盘价），而今天的现金交易仍会计入。
 
 ```sql
-SELECT * FROM fn_sector_allocation(1);               -- portfolio 1, latest date
-SELECT * FROM fn_top_movers('2025-01-01');           -- 2025-01-01 .. latest, top 5
+SELECT * FROM fn_sector_allocation(1);               -- portfolio 1, today
+SELECT * FROM fn_top_movers('2025-01-01');           -- 2025-01-01 .. today, top 5
 SELECT * FROM fn_holding_pl(1, '2025-06-30');        -- portfolio 1 as of a past date
 SELECT * FROM fn_watchlist_targets_reached();        -- all investors
 ```
 
 ## How Python will call them / Python 如何调用
 ```python
-cur.execute("SELECT * FROM fn_holding_pl(%s, %s)", (portfolio_id, as_of))   # as_of = None -> latest
+cur.execute("SELECT * FROM fn_holding_pl(%s, %s)", (portfolio_id, as_of))   # as_of = None -> today
 rows = cur.fetchall()            # list of tuples, one per row
 ```
-**EN:** Python's `None` becomes SQL `NULL`, so leaving a date empty in the menu means "latest". The functions only read data and are `STABLE`, so they're safe to call at any time.
-**中文：** Python 的 `None` 会变成 SQL 的 `NULL`，所以菜单里日期留空就表示"最新"。这些函数只读取数据，并声明为 `STABLE`，任何时候调用都是安全的。
+**EN:** Python's `None` becomes SQL `NULL`, so leaving a date empty in the menu means "today". The functions only read data and are `STABLE`, so they're safe to call at any time.
+**中文：** Python 的 `None` 会变成 SQL 的 `NULL`，所以菜单里日期留空就表示"今天"。这些函数只读取数据，并声明为 `STABLE`，任何时候调用都是安全的。
 
 ---
 
 ## The shared building blocks / 共用的基本写法
 
-### 1. The default date / 默认日期
+### 1. The default date / 默认日期: today
 ```sql
 WITH params AS (
-    SELECT COALESCE(p_as_of, (SELECT max(dp.price_date) FROM daily_price dp)) AS as_of
+    SELECT COALESCE(p_as_of, CURRENT_DATE) AS as_of
 )
 ```
-**EN:** `COALESCE(a, b)` returns the first value that isn't NULL, so if the caller passes no date, we use the latest price date. The `params` CTE computes it **once**, and every later part of the query uses `params.as_of`.
-**中文：** `COALESCE(a, b)` 返回第一个非 NULL 的值：调用者没传日期时，就用最新的价格日期。`params` 这个 CTE 只计算**一次**，查询后面的部分都使用 `params.as_of`。
+**EN:**
+- `COALESCE(a, b)` returns the first value that isn't NULL, so if the caller passes no date, we use **today**. The `params` CTE computes it **once**, and every later part of the query uses `params.as_of`.
+- **Decision (yours):** the default is today, not the latest *price* date. Prices load only up to yesterday, so with "latest price date" a deposit made today would be missing from query 2 while `v_cash_balance` already shows it. With today, the two always agree (a test checks every portfolio's Cash row against `v_cash_balance`).
+- Closes don't change: "latest close on or before today" is still the latest price loaded (point 2).
+- Example: on 2026-11-02, `fn_sector_allocation()` shows `as_of = 2026-11-02`, and `fn_holding_pl()` shows `close_date = 2026-10-30`.
+
+**中文：**
+- `COALESCE(a, b)` 返回第一个非 NULL 的值：调用者没传日期时，就用**今天**。`params` 这个 CTE 只计算**一次**，查询后面的部分都使用 `params.as_of`。
+- **决定（你做的）：** 默认值是今天，而不是最新的*价格*日期。价格只加载到昨天，如果默认用"最新价格日期"，今天的存款就不会出现在查询 2 中，而 `v_cash_balance` 已经包含它。默认用今天，两者就始终一致（有测试逐个检查每个 portfolio 的 Cash 行与 `v_cash_balance` 是否相等）。
+- 收盘价不受影响："今天或之前的最新收盘价"仍然是已加载的最新价格（第 2 点）。
+- 例子：2026-11-02 时，`fn_sector_allocation()` 显示 `as_of = 2026-11-02`，`fn_holding_pl()` 显示 `close_date = 2026-10-30`。
 
 ### 2. "Latest close on or before a date", per ticker / 每只股票"某日或之前的最新收盘价"
 ```sql
@@ -63,8 +72,11 @@ CROSS JOIN LATERAL (
 - **小例子：** AAPL 周四收盘 230，周五 232，周六没有数据。"截至周六"取到周五那一行，即 232。
 
 ### 3. The new index / 新索引: `idx_daily_price_date ON daily_price (price_date)`
+> **Status update:** since the default changed to `CURRENT_DATE`, the analysis functions no longer run `max(price_date)`. The index still serves date-only lookups (e.g. `check_prices.sql`). Whether to keep it gets decided with query 1, which may look up month-end dates by `price_date` alone.
+> **状态更新：** 默认日期改为 `CURRENT_DATE` 之后，分析函数不再执行 `max(price_date)`。索引仍可用于只按日期的查找（例如 `check_prices.sql`）。是否保留，在做查询 1 时决定（查询 1 可能只按 `price_date` 查找月末日期）。
+
 **EN:**
-- The *global* `max(price_date)` (the default date) **can't** use the primary key, because `price_date` is its *second* column. An index sorted by ticker first can't quickly find the overall latest date.
+- The *global* `max(price_date)` (formerly the default date) **can't** use the primary key, because `price_date` is its *second* column. An index sorted by ticker first can't quickly find the overall latest date.
 - Measured on the real data (38,064 rows):
 
   | | plan | rows read | time |
@@ -203,25 +215,25 @@ CROSS JOIN LATERAL (
 - 不会改动数据的证据：生成数据的指纹在执行前后都是 `ea1746ea…`。
 - **限制：** `CREATE OR REPLACE FUNCTION` 不能修改函数的返回列，需要先 `DROP FUNCTION`。
 
-## Behaviour to know: the default date is the latest *price* date / 需要知道的行为：默认日期是最新的*价格*日期
+## Earlier behaviour, now changed / 之前的行为（已修改）
 
-**EN:** The loader stores prices only up to **yesterday**, so a cash transaction dated **today** comes after the default `as_of` and isn't counted by `fn_sector_allocation` until the next price load. The test "default as_of ignores a deposit dated after the latest price date" documents this (Bal Dates: 9,701 vs `v_cash_balance` 9,702). The alternative would be to default `as_of` to `CURRENT_DATE`: closes would be unchanged (still the latest close on or before), but events dated today would count.
-**中文：** 加载器只把价格存到**昨天**，所以日期为**今天**的现金交易排在默认的 `as_of` 之后，在下次加载价格之前，`fn_sector_allocation` 都不会计入它。测试 "default as_of ignores a deposit dated after the latest price date" 记录了这一点（Bal Dates：9,701，而 `v_cash_balance` 是 9,702）。另一种做法是把 `as_of` 默认设为 `CURRENT_DATE`：收盘价不变（仍是当天或之前的最新收盘价），但今天的事件会被计入。
+**EN:** At first the default was the latest **price** date. Because prices load only up to yesterday, a cash transaction dated today was left out of query 2 until the next price load (Bal Dates showed 9,701 instead of `v_cash_balance`'s 9,702). You decided to default to `CURRENT_DATE` instead. The test now checks both sides: by default the deposit counts (9,702); with an explicit `as_of` of the latest price date it doesn't (9,701).
+**中文：** 最初的默认值是最新的**价格**日期。因为价格只加载到昨天，今天的现金交易在下次加载价格之前不会被查询 2 计入（Bal Dates 显示 9,701，而 `v_cash_balance` 是 9,702）。你决定改为默认使用 `CURRENT_DATE`。现在测试两边都检查：默认时这笔存款计入（9,702）；显式指定 `as_of` 为最新价格日期时不计入（9,701）。
 
 ## Tests / 测试
 
 **EN:** 26 new SQL tests ("ana", "q2"–"q5") use fictional tickers whose prices exist only in 2025, so no other test data is in those periods.
-- **q4:** values as of d4, d2 and d1 and before the first trade; closed position; default = latest; default = `v_holdings`
-- **q3:** ranks with ties and a skipped rank; 0% excluded; `p_limit` keeps ties; first and last close inside the period; one-day period; no index
-- **q2:** values and order; sums to 100; stocks-only; before the start; all portfolios ±0.05; zero-value portfolio; Cash = `v_cash_balance`; the default-date behaviour
-- **q5:** target 90 appears; 100 and NULL don't; default = latest
+- **q4:** values as of d4, d2 and d1 and before the first trade; closed position; default = today (closes from the latest price date); default = `v_holdings`
+- **q3:** ranks with ties and a skipped rank; 0% excluded; `p_limit` keeps ties; first and last close inside the period; one-day period; default end = today; no index
+- **q2:** values and order; sums to 100; stocks-only; before the start; all portfolios ±0.05; zero-value portfolio; default as_of = today; Cash = `v_cash_balance` for every portfolio; a deposit dated today counts by default but not as of the latest price date
+- **q5:** target 90 appears; 100 and NULL don't; default = today
 
-Totals: **308 SQL tests and 30 pytest tests, all passing.**
+Totals: **311 SQL tests and 30 pytest tests, all passing.**
 
 **中文：** 26 个新的 SQL 测试（"ana"、"q2"–"q5"）使用只在 2025 年有价格的虚构股票，所以这些时间段里没有其他测试数据。
-- **q4：** 截至 d4、d2、d1 以及第一笔交易之前的值；已清仓持仓；默认日期 = 最新日期；默认结果 = `v_holdings`
-- **q3：** 含并列和跳过名次的排名；0% 被排除；`p_limit` 保留并列；首尾收盘价在区间内；单日区间；不包括指数
-- **q2：** 数值和顺序；合计为 100；只算股票；开始日期之前；所有 portfolio 合计在 ±0.05 以内；总值为 0 的 portfolio；Cash = `v_cash_balance`；默认日期的行为
-- **q5：** 目标价 90 出现；100 和 NULL 不出现；默认日期 = 最新日期
+- **q4：** 截至 d4、d2、d1 以及第一笔交易之前的值；已清仓持仓；默认日期 = 今天（收盘价取最新价格日期）；默认结果 = `v_holdings`
+- **q3：** 含并列和跳过名次的排名；0% 被排除；`p_limit` 保留并列；首尾收盘价在区间内；单日区间；默认结束日期 = 今天；不包括指数
+- **q2：** 数值和顺序；合计为 100；只算股票；开始日期之前；所有 portfolio 合计在 ±0.05 以内；总值为 0 的 portfolio；默认 as_of = 今天；每个 portfolio 的 Cash = `v_cash_balance`；今天的存款默认计入，但截至最新价格日期时不计入
+- **q5：** 目标价 90 出现；100 和 NULL 不出现；默认日期 = 今天
 
-合计：**308 个 SQL 测试和 30 个 pytest 测试，全部通过。**
+合计：**311 个 SQL 测试和 30 个 pytest 测试，全部通过。**

@@ -127,7 +127,9 @@ Done so far:
   fn_sector_allocation(portfolio, as_of, include_cash) [Q2, cash row by default],
   fn_top_movers(start, end, limit) [Q3, RANK, ties kept, gainers > 0 / losers < 0],
   fn_holding_pl(portfolio, as_of) [Q4, trades up to as_of via fn_position_history],
-  fn_watchlist_targets_reached(investor, as_of) [Q5]. NULL date = latest price date.
+  fn_watchlist_targets_reached(investor, as_of) [Q5]. NULL date = today (CURRENT_DATE, DECIDED:
+  agrees with v_cash_balance); closes = latest close <= that date. idx_daily_price_date: keep/drop
+  to be decided with query 1 (analysis defaults no longer use max(price_date)).
 Next: analysis query 1 (monthly return vs S&P 500), then the Python CLI app
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)

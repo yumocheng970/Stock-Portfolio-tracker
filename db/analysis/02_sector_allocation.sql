@@ -2,13 +2,15 @@
 -- Paper-Trading Portfolio Tracker  (CS 5200, Yumo Cheng)
 -- Analysis query 2: sector allocation % per portfolio, as of a date
 --
--- SELECT * FROM fn_sector_allocation();                  -- all portfolios, latest date
+-- SELECT * FROM fn_sector_allocation();                  -- all portfolios, today
 -- SELECT * FROM fn_sector_allocation(5, '2025-06-30');   -- one portfolio, a past date
 -- SELECT * FROM fn_sector_allocation(5, NULL, false);    -- stocks only, no cash row
 --
 -- market value of a sector = SUM(shares x close), using each ticker's
 -- latest close on or before as_of. Shares and cash are as of that date
 -- (only events up to as_of count).
+-- Default as_of = today, so today's cash transactions count (the same
+-- as v_cash_balance) while closes come from the latest price date <= today.
 -- Cash is its own row ('Cash') by default, so pct is a share of the
 -- TOTAL portfolio value; p_include_cash = false gives stocks only.
 -- pct is rounded to 2 decimals, so a portfolio's rows may sum to
@@ -17,7 +19,7 @@
 
 CREATE OR REPLACE FUNCTION fn_sector_allocation(
     p_portfolio_id  INTEGER DEFAULT NULL,    -- NULL = all portfolios
-    p_as_of         DATE    DEFAULT NULL,    -- NULL = latest price date
+    p_as_of         DATE    DEFAULT NULL,    -- NULL = today (CURRENT_DATE)
     p_include_cash  BOOLEAN DEFAULT true
 )
 RETURNS TABLE (
@@ -32,7 +34,7 @@ LANGUAGE sql
 STABLE
 AS $$
     WITH params AS (
-        SELECT COALESCE(p_as_of, (SELECT max(dp.price_date) FROM daily_price dp)) AS as_of
+        SELECT COALESCE(p_as_of, CURRENT_DATE) AS as_of
     ),
     pf AS (
         -- Portfolios that exist on as_of (simulation already started)

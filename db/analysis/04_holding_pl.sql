@@ -2,14 +2,14 @@
 -- Paper-Trading Portfolio Tracker  (CS 5200, Yumo Cheng)
 -- Analysis query 4: realized vs unrealized P/L per holding, as of a date
 --
--- SELECT * FROM fn_holding_pl();                  -- all portfolios, latest date
+-- SELECT * FROM fn_holding_pl();                  -- all portfolios, today
 -- SELECT * FROM fn_holding_pl(5, '2025-06-30');   -- one portfolio, a past date
 --
 -- Position state (shares, average cost, realized P/L) comes from
 -- fn_position_history (db/views/02_v_holdings.sql), using only trades
 -- on or before as_of. v_holdings itself always includes ALL trades, so
--- a past as_of would mix in later trades. With the default date the
--- numbers equal v_holdings.
+-- a past as_of would mix in later trades. With the default date (today)
+-- the numbers equal v_holdings.
 --   unrealized = shares_held x close(as_of) - cost_basis
 --   close(as_of) = the ticker's latest close on or before as_of
 -- Closed positions (shares 0) are included: unrealized 0, realized kept.
@@ -17,7 +17,7 @@
 
 CREATE OR REPLACE FUNCTION fn_holding_pl(
     p_portfolio_id  INTEGER DEFAULT NULL,    -- NULL = all portfolios
-    p_as_of         DATE    DEFAULT NULL     -- NULL = latest price date
+    p_as_of         DATE    DEFAULT NULL     -- NULL = today (CURRENT_DATE)
 )
 RETURNS TABLE (
     portfolio_id    INTEGER,
@@ -37,7 +37,7 @@ LANGUAGE sql
 STABLE
 AS $$
     WITH params AS (
-        SELECT COALESCE(p_as_of, (SELECT max(dp.price_date) FROM daily_price dp)) AS as_of
+        SELECT COALESCE(p_as_of, CURRENT_DATE) AS as_of
     ),
     last_state AS (
         -- Position after the last trade on or before as_of, per ticker

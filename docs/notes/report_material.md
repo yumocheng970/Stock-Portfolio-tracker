@@ -23,7 +23,8 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **Query 2: cash is its own row** by default, so the percentages are of the whole portfolio. Without it, a mostly-cash portfolio would look fully invested. `p_include_cash => false` gives the stocks-only split.
 - **Query 3: RANK() with ties kept** (`rank <= 5` can return more than 5 rows), instead of ROW_NUMBER (an arbitrary tie-break) or DENSE_RANK (no skipped ranks). Ranking uses the exact % (rounded only for display). Gainers must be > 0% and losers < 0%.
 - **Query 4: "as of" uses only trades up to that date** (`fn_position_history`), not `v_holdings` (always all trades), so a past date isn't mixed with later trades. At the latest date the results equal `v_holdings`.
-- **Secondary index `daily_price(price_date)`:** the global "latest price date" default can't use the PK `(ticker, price_date)`, where price_date is the second column. Measured on 38,064 rows: Seq Scan 1.98 ms → Index Only Scan reading 1 row, 0.10 ms. Per-ticker "latest close ≤ date" lookups already use the PK, so they need no index.
+- **Secondary index `daily_price(price_date)`:** the global "latest price date" default can't use the PK `(ticker, price_date)`, where price_date is the second column. Measured on 38,064 rows: Seq Scan 1.98 ms → Index Only Scan reading 1 row, 0.10 ms. Per-ticker "latest close ≤ date" lookups already use the PK, so they need no index. *Open:* after the default became `CURRENT_DATE`, the analysis functions no longer run this lookup; keep or drop is decided with query 1.
+- **Default date = today (`CURRENT_DATE`), not the latest price date.** Prices load only up to yesterday, so "latest price date" would leave today's cash transactions out of query 2 while `v_cash_balance` already counts them. With today, the analysis functions and the views always agree, and the closes are unchanged ("latest close on or before today" is still the latest price loaded). Found during testing (Bal Dates: 9,701 vs 9,702); decided by me.
 - **`db/apply.sql` split from `db/reset.sql`:** objects without data (views, functions, triggers, analysis, indexes) are idempotent and listed once. `reset.sql` includes the list after creating the tables; `make apply-db` applies it to the real DB in one transaction without touching data (the fingerprint was unchanged).
 
 ## Lessons learned: known limitations (document honestly)
@@ -36,7 +37,6 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - TRUNCATE is blocked on `trade` and `cash_transaction`, because row-level triggers don't fire on TRUNCATE. Cleanup must use `DELETE`, and this also blocks `TRUNCATE portfolio/investor CASCADE`.
 - The balance replay runs once per changed row, so a multi-row statement (e.g. a ticker rename over many trades) replays the same portfolio several times.
 - Reproducible sample data depends on the Faker version (40.40.0) and on the price data up to the fixed `SIM_END` (2026-10-30).
-- The analysis functions default to the latest **price** date. Prices load only up to yesterday, so a cash transaction dated today isn't counted by query 2 until the next price load.
 - `make apply-db` uses `CREATE OR REPLACE`, which can't change a function's return columns. That change needs a manual `DROP FUNCTION` first.
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.
 

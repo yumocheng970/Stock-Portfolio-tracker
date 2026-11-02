@@ -15,6 +15,8 @@
 -- =====================================================================
 
 \set ON_ERROR_STOP on
+-- Hide NOTICEs such as "index ... already exists, skipping"
+SET client_min_messages = warning;
 
 -- Views (before programmability: functions/triggers use them)
 \ir views/01_v_cash_balance.sql

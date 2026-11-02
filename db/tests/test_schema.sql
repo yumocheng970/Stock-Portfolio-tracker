@@ -1197,7 +1197,8 @@ SELECT pg_temp.check('rcash: rejected CALLs left no rows (Rcash Errors has none,
 -- in these periods:
 --   query 3: AN1-AN4, AN8 on 2025-02-03 .. 02-07 (open = close, range 50..200)
 --   queries 2/4/5: AN5-AN7, AW1-AW3 on 2025-03-03 .. 03-07 (d1 .. d5)
--- 2025-03-07 becomes the latest price date in the test DB (the default).
+-- 2025-03-07 becomes the latest price date in the test DB. The default date
+-- is CURRENT_DATE (today), so closes come from 2025-03-07 (latest <= today).
 -- =====================================================================
 SELECT pg_temp.expect_ok('ana: setup sectors, stocks, prices, portfolios, trades, watchlist',
     $q$
@@ -1266,9 +1267,12 @@ SELECT pg_temp.check('q4: closed position kept: shares 0, avg NULL, cost 0, unre
     (SELECT shares_held = 0 AND avg_cost IS NULL AND cost_basis = 0 AND market_value = 0
             AND unrealized_pl = 0 AND realized_pl = 50.00
      FROM fn_holding_pl(pg_temp.pf('Ana Closed'))));
-SELECT pg_temp.check('q4: default date = latest price date (2025-03-07)',
+SELECT pg_temp.check('q4: default date = today; closes still from the latest price date (2025-03-07)',
     (SELECT array_agg(h ORDER BY h.ticker) FROM fn_holding_pl(pg_temp.pf('Ana PL')) h)
-    = (SELECT array_agg(h ORDER BY h.ticker) FROM fn_holding_pl(pg_temp.pf('Ana PL'), '2025-03-07') h));
+    = (SELECT array_agg(h ORDER BY h.ticker) FROM fn_holding_pl(pg_temp.pf('Ana PL'), CURRENT_DATE) h)
+    AND (SELECT array_agg(h ORDER BY h.ticker) FROM fn_holding_pl(pg_temp.pf('Ana PL')) h)
+    = (SELECT array_agg(h ORDER BY h.ticker) FROM fn_holding_pl(pg_temp.pf('Ana PL'), '2025-03-07') h)
+    AND (SELECT close_date = '2025-03-07' FROM fn_holding_pl(pg_temp.pf('Ana PL'))));
 SELECT pg_temp.check('q4: default date matches v_holdings (shares, avg, cost basis, realized)',
     NOT EXISTS (
         SELECT 1 FROM fn_holding_pl() f
@@ -1293,6 +1297,9 @@ SELECT pg_temp.check('q3: start/end are the first and last close inside the peri
      FROM fn_top_movers('2025-02-01', '2025-02-09') WHERE ticker = 'AN1'));
 SELECT pg_temp.check('q3: a one-day period has no movers (needs two different days)',
     NOT EXISTS (SELECT 1 FROM fn_top_movers('2025-02-07', '2025-02-07')));
+SELECT pg_temp.check('q3: default end = today (same result as an explicit CURRENT_DATE)',
+    (SELECT array_agg(m ORDER BY m.direction, m.rank, m.ticker) FROM fn_top_movers('2025-02-03') m)
+    = (SELECT array_agg(m ORDER BY m.direction, m.rank, m.ticker) FROM fn_top_movers('2025-02-03', CURRENT_DATE) m));
 SELECT pg_temp.check('q3: the index ^GSPC is never listed',
     NOT EXISTS (SELECT 1 FROM fn_top_movers('2000-01-01') WHERE ticker = '^GSPC'));
 
@@ -1317,19 +1324,25 @@ SELECT pg_temp.check('q2: every portfolio with value > 0 sums to 100% (+-0.05 ro
 SELECT pg_temp.check('q2: portfolio worth 0 (all cash withdrawn) -> Cash 0, pct NULL, no error',
     (SELECT count(*) = 1 AND bool_and(sector_name = 'Cash' AND market_value = 0 AND pct IS NULL)
      FROM fn_sector_allocation(pg_temp.pf('Bal Withdraw'))));
-SELECT pg_temp.check('q2: Cash row = v_cash_balance (portfolios with no events after the latest price date)',
-    NOT EXISTS (SELECT 1 FROM fn_sector_allocation() a
-                JOIN v_cash_balance v ON v.portfolio_id = a.portfolio_id
-                WHERE a.sector_name = 'Cash' AND a.market_value <> v.cash_balance
-                  AND NOT EXISTS (SELECT 1 FROM cash_transaction c
-                                  WHERE c.portfolio_id = a.portfolio_id AND c.txn_date > a.as_of)));
--- Documents the default: as_of = latest PRICE date, so a cash transaction
--- dated later (Bal Dates has a 1.00 deposit dated CURRENT_DATE) isn't counted.
-SELECT pg_temp.check('q2: default as_of ignores a deposit dated after the latest price date (Bal Dates 9701 vs 9702)',
-    (SELECT a.market_value = 9701.00 AND v.cash_balance = 9702.00
+SELECT pg_temp.check('q2: default as_of is today (CURRENT_DATE)',
+    (SELECT bool_and(as_of = CURRENT_DATE) FROM fn_sector_allocation()));
+SELECT pg_temp.check('q2: Cash row = v_cash_balance for EVERY portfolio (default date)',
+    NOT EXISTS (SELECT 1 FROM v_cash_balance v
+                LEFT JOIN fn_sector_allocation() a
+                       ON a.portfolio_id = v.portfolio_id AND a.sector_name = 'Cash'
+                JOIN portfolio p ON p.portfolio_id = v.portfolio_id
+                WHERE p.start_date <= CURRENT_DATE
+                  AND a.market_value IS DISTINCT FROM v.cash_balance));
+-- Bal Dates has a 1.00 deposit dated CURRENT_DATE, after the latest price
+-- date: the default (today) counts it; an explicit price date does not.
+SELECT pg_temp.check('q2: deposit dated today counts by default (Bal Dates 9702 = v_cash_balance)',
+    (SELECT a.market_value = 9702.00 AND v.cash_balance = 9702.00
      FROM fn_sector_allocation(pg_temp.pf('Bal Dates')) a
      JOIN v_cash_balance v ON v.portfolio_id = a.portfolio_id
      WHERE a.sector_name = 'Cash'));
+SELECT pg_temp.check('q2: ...but not as of the latest price date (Bal Dates 9701 on 2025-03-07)',
+    (SELECT market_value = 9701.00
+     FROM fn_sector_allocation(pg_temp.pf('Bal Dates'), '2025-03-07') WHERE sector_name = 'Cash'));
 
 -- Query 5: fn_watchlist_targets_reached ------------------------------------------
 -- AW1/AW2/AW3 close 95; targets 90 / 100 / NULL
@@ -1341,8 +1354,10 @@ SELECT pg_temp.check('q5: target 100 with close 95 does not appear; NULL target 
     NOT EXISTS (SELECT 1 FROM fn_watchlist_targets_reached(pg_temp.inv('alice@example.com'), '2025-03-07')
                 WHERE ticker IN ('AW2', 'AW3'))
     AND NOT EXISTS (SELECT 1 FROM fn_watchlist_targets_reached() WHERE target_price IS NULL));
-SELECT pg_temp.check('q5: default date = latest price date',
+SELECT pg_temp.check('q5: default date = today; closes still from the latest price date',
     (SELECT array_agg(r ORDER BY r.watchlist_id, r.ticker) FROM fn_watchlist_targets_reached() r)
+    = (SELECT array_agg(r ORDER BY r.watchlist_id, r.ticker) FROM fn_watchlist_targets_reached(NULL, CURRENT_DATE) r)
+    AND (SELECT array_agg(r ORDER BY r.watchlist_id, r.ticker) FROM fn_watchlist_targets_reached() r)
     = (SELECT array_agg(r ORDER BY r.watchlist_id, r.ticker) FROM fn_watchlist_targets_reached(NULL, '2025-03-07') r));
 
 -- Remove the analysis watchlist again: a later FK test counts all watchlist items

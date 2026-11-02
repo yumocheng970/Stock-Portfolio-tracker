@@ -5,13 +5,16 @@
 -- database without a reset. IF NOT EXISTS makes the file re-runnable.
 -- =====================================================================
 
--- Every analysis function defaults its date to "the latest price date":
+-- Serves lookups by date across ALL tickers, e.g.
 --     SELECT max(price_date) FROM daily_price [WHERE price_date <= ...]
 -- The primary key (ticker, price_date) can't serve that: price_date is
 -- its SECOND column, so PostgreSQL scans all rows (Seq Scan, 38k rows
 -- for 26 tickers x ~6 years, growing every day). With this index it is
--- a one-row Index Only Scan Backward. Query 1 (monthly returns) will
--- also look up month-end dates by price_date alone.
+-- a one-row Index Only Scan Backward (measured: 1.98 ms -> 0.10 ms).
+-- Status: the analysis functions now default to CURRENT_DATE and no
+-- longer run this lookup; db/tests/check_prices.sql still does. Keep or
+-- drop is decided with query 1 (monthly returns), which may look up
+-- month-end dates by price_date alone.
 --
 -- Not needed: "latest close of ONE ticker on or before a date"
 -- (WHERE ticker = x AND price_date <= d ORDER BY price_date DESC LIMIT 1)

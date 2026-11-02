@@ -2,7 +2,7 @@
 -- Paper-Trading Portfolio Tracker  (CS 5200, Yumo Cheng)
 -- Analysis query 3: top gainers and top losers over a period
 --
--- SELECT * FROM fn_top_movers('2025-01-01');                 -- to the latest date, top 5
+-- SELECT * FROM fn_top_movers('2025-01-01');                 -- to today, top 5
 -- SELECT * FROM fn_top_movers('2025-01-01', '2025-06-30', 3);
 --
 -- For every STOCK (never the index): % change from the first close on
@@ -18,7 +18,7 @@
 
 CREATE OR REPLACE FUNCTION fn_top_movers(
     p_start  DATE,
-    p_end    DATE    DEFAULT NULL,    -- NULL = latest price date
+    p_end    DATE    DEFAULT NULL,    -- NULL = today (CURRENT_DATE)
     p_limit  INTEGER DEFAULT 5
 )
 RETURNS TABLE (
@@ -37,7 +37,7 @@ STABLE
 AS $$
     WITH params AS (
         SELECT p_start AS start_d,
-               COALESCE(p_end, (SELECT max(dp.price_date) FROM daily_price dp)) AS end_d
+               COALESCE(p_end, CURRENT_DATE) AS end_d
     ),
     moves AS (
         SELECT s.ticker, s.company_name,

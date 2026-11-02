@@ -2,17 +2,17 @@
 -- Paper-Trading Portfolio Tracker  (CS 5200, Yumo Cheng)
 -- Analysis query 5: watchlist items whose latest close >= target_price
 --
--- SELECT * FROM fn_watchlist_targets_reached();      -- all investors, latest date
+-- SELECT * FROM fn_watchlist_targets_reached();      -- all investors, today
 -- SELECT * FROM fn_watchlist_targets_reached(3);     -- one investor
 --
 -- latest close = the ticker's latest close on or before p_as_of
--- (default: the latest price date). Items without a target_price never
+-- (default: today, i.e. the latest close loaded). Items without a target_price never
 -- appear: "close >= NULL" is NULL, and WHERE keeps only TRUE rows.
 -- =====================================================================
 
 CREATE OR REPLACE FUNCTION fn_watchlist_targets_reached(
     p_investor_id  INTEGER DEFAULT NULL,    -- NULL = all investors
-    p_as_of        DATE    DEFAULT NULL     -- NULL = latest price date
+    p_as_of        DATE    DEFAULT NULL     -- NULL = today (CURRENT_DATE)
 )
 RETURNS TABLE (
     investor_id       INTEGER,
@@ -29,7 +29,7 @@ LANGUAGE sql
 STABLE
 AS $$
     WITH params AS (
-        SELECT COALESCE(p_as_of, (SELECT max(dp.price_date) FROM daily_price dp)) AS as_of
+        SELECT COALESCE(p_as_of, CURRENT_DATE) AS as_of
     )
     SELECT i.investor_id, i.name, w.watchlist_id, w.watchlist_name,
            wi.ticker, wi.target_price, c.price_date, c.close,
