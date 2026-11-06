@@ -1,10 +1,11 @@
-# Analysis queries 2–5
+# Analysis queries 1–5
 
 Files in `db/analysis/`:
 
 | File | Function | Query |
 |---|---|---|
-| `00_indexes.sql` | `idx_daily_price_date` | index for the "latest date" defaults |
+| `00_indexes.sql` | (`idx_daily_price_date` dropped) | secondary indexes; see point 3 |
+| `01_monthly_returns.sql` | `fn_monthly_returns(portfolio_id, from_month, to_month)` | 1 |
 | `02_sector_allocation.sql` | `fn_sector_allocation(portfolio_id, as_of, include_cash)` | 2 |
 | `03_top_movers.sql` | `fn_top_movers(start, end, limit)` | 3 |
 | `04_holding_pl.sql` | `fn_holding_pl(portfolio_id, as_of)` | 4 |
@@ -14,6 +15,7 @@ Files in `db/analysis/`:
 **中文：** 第一个之后的参数都可以省略。日期为 NULL 表示**今天**（`CURRENT_DATE`），id 为 NULL 表示**全部**。收盘价总是取该日期当天或之前的最新收盘价，所以使用默认值时得到已加载的最新价格（昨天的收盘价），而今天的现金交易仍会计入。
 
 ```sql
+SELECT * FROM fn_monthly_returns(1);                 -- portfolio 1, every month to today
 SELECT * FROM fn_sector_allocation(1);               -- portfolio 1, today
 SELECT * FROM fn_top_movers('2025-01-01');           -- 2025-01-01 .. today, top 5
 SELECT * FROM fn_holding_pl(1, '2025-06-30');        -- portfolio 1 as of a past date
@@ -71,9 +73,11 @@ CROSS JOIN LATERAL (
 - **速度快**，因为主键是 `(ticker, price_date)`：PostgreSQL 在索引中直接跳到这只股票，向后读一行（`Index Scan Backward using pk_daily_price`）。
 - **小例子：** AAPL 周四收盘 230，周五 232，周六没有数据。"截至周六"取到周五那一行，即 232。
 
-### 3. The new index / 新索引: `idx_daily_price_date ON daily_price (price_date)`
-> **Status update:** since the default changed to `CURRENT_DATE`, the analysis functions no longer run `max(price_date)`. The index still serves date-only lookups (e.g. `check_prices.sql`). Whether to keep it gets decided with query 1, which may look up month-end dates by `price_date` alone.
-> **状态更新：** 默认日期改为 `CURRENT_DATE` 之后，分析函数不再执行 `max(price_date)`。索引仍可用于只按日期的查找（例如 `check_prices.sql`）。是否保留，在做查询 1 时决定（查询 1 可能只按 `price_date` 查找月末日期）。
+### 3. The index `idx_daily_price_date ON daily_price (price_date)`: added, measured, dropped / 索引：添加、测量、删除
+> **Final status: DROPPED** (with query 1). The analysis functions default to `CURRENT_DATE` and never run `max(price_date)`. Query 1 also looks up month-end closes **per ticker** (and for ^GSPC), which uses the primary key. Proof: `EXPLAIN ANALYZE SELECT * FROM fn_monthly_returns()` on the real DB, with the index still present, used `pk_daily_price` 4 times and `idx_daily_price_date` 0 times. An unused index only costs disk space and slows every price insert, so `00_indexes.sql` now runs `DROP INDEX IF EXISTS`. `check_prices.sql` still runs `max(price_date)`, but a 2 ms Seq Scan in a manual check is fine.
+> **最终状态：已删除**（在查询 1 时决定）。分析函数默认用 `CURRENT_DATE`，从不执行 `max(price_date)`。查询 1 也是**按股票**（以及 ^GSPC）查找月末收盘价，走的是主键。证据：在真实数据库上（索引还在时）执行 `EXPLAIN ANALYZE SELECT * FROM fn_monthly_returns()`，`pk_daily_price` 用了 4 次，`idx_daily_price_date` 0 次。没人用的索引只会占空间、拖慢每次插入价格，所以 `00_indexes.sql` 现在执行 `DROP INDEX IF EXISTS`。`check_prices.sql` 仍会执行 `max(price_date)`，但手动检查里 2 ms 的顺序扫描没有问题。
+
+The original reasoning and measurement, kept for the report / 原来的理由和测量结果（留给报告）：
 
 **EN:**
 - The *global* `max(price_date)` (formerly the default date) **can't** use the primary key, because `price_date` is its *second* column. An index sorted by ticker first can't quickly find the overall latest date.
@@ -90,6 +94,97 @@ CROSS JOIN LATERAL (
 - *全局*的 `max(price_date)`（默认日期）**不能**使用主键，因为 `price_date` 是主键的*第二*列。一个先按 ticker 排序的索引，无法快速找到全表最新的日期。
 - 在真实数据（38,064 行）上实测的结果见上表。
 - 每个交易日表会增加 26 行，顺序扫描只会越来越慢。每只股票的查找（第 2 点）不需要新索引，主键已经足够。SQL 注释里写明了这两点。
+
+---
+
+## Query 1: monthly return vs the S&P 500 / 月收益率与标普 500 对比 (`fn_monthly_returns`)
+
+```sql
+SELECT * FROM fn_monthly_returns();                              -- all portfolios, all months
+SELECT * FROM fn_monthly_returns(3, '2025-04-01', '2025-10-01'); -- portfolio 3, Apr..Oct 2025
+```
+Columns: `month` (1st day), `period_start`, `period_end`, `start_value`, `end_value`, `net_flow`, `portfolio_return_pct`, `spx_return_pct`, `excess_return_pct`, `cum_portfolio_pct`, `cum_spx_pct`.
+Months can be given as any day of the month (`'2025-04-17'` means April).
+
+### The period and the values / 区间与市值
+**EN:**
+- **Value at a date d** = cash after all events up to d + SUM(shares held on d × the latest close on or before d). A Saturday month end therefore uses Friday's close.
+- **period_start** = the 1st of the month, or `start_date` in the first month (a partial month). **period_end** = the last day of the month, or **today** in the current month (also partial).
+- **start_value** = the previous month's `end_value`, or `starting_cash` in the first month (the value at the start of `start_date`, before any trade).
+
+**中文：**
+- **某日 d 的市值** = 截至 d 所有事件之后的现金 + SUM(d 日持有的股数 × d 当天或之前的最新收盘价)。所以月末如果是周六，就用周五的收盘价。
+- **period_start** = 当月 1 号；第一个月则是 `start_date`（不完整的月）。**period_end** = 当月最后一天；当前月则是**今天**（也不完整）。
+- **start_value** = 上个月的 `end_value`；第一个月是 `starting_cash`（`start_date` 开始时、任何交易之前的市值）。
+
+### The formula: Modified Dietz / 公式：修正 Dietz 法
+```
+R = (V_end − V_start − F) / (V_start + Σ w_i · F_i)
+F   = net flow = deposits − withdrawals in the period
+w_i = (period_end − flow_date + 1) / D,    D = period_end − period_start + 1  (days)
+```
+**EN:**
+- The **numerator** is the real gain: the change in value minus the money you put in. A deposit raises `V_end` by the same amount as `F`, so it cancels out and is not counted as a gain.
+- The **denominator** is the average capital that was at work. A flow counts only for the fraction of the month it was in the portfolio. `w_i` counts days from the **start** of the flow day, because cash transactions come before trades on the same day.
+- **Worked example** (also an SQL test): start 10,000 on 2025-05-01, BUY 100 AR1 @ 100 that day. DEPOSIT 3,100 on 05-16. Close at month end 110.
+  - V_end = 100 × 110 + 3,100 = 14,100; F = 3,100; D = 31; w = (31 − 16 + 1)/31 = 16/31
+  - R = (14,100 − 10,000 − 3,100) / (10,000 + 3,100 × 16/31) = 1,000 / 11,600 = **8.62 %**
+
+  | Method / 方法 | Calculation / 计算 | Result / 结果 |
+  |---|---|---|
+  | Naive (deposit counted as gain) / 朴素法（存款算作收益） | 4,100 / 10,000 | 41.00 % ✗ |
+  | Flows at end of month / 资金流算在月末 | 1,000 / 10,000 | 10.00 % |
+  | Flows at start of month / 资金流算在月初 | 1,000 / 13,100 | 7.63 % |
+  | **Modified Dietz** / **修正 Dietz** | 1,000 / 11,600 | **8.62 %** |
+
+  Why not 10 %? The stock gained 10 %, but the 3,100 sat as cash for half the month and earned nothing, so the average capital (11,600) earned 1,000.
+- **Rejected:** the true time-weighted return. It needs a full valuation on every flow date, which means more lookups and is harder to explain. Modified Dietz is the standard monthly approximation.
+
+**中文：**
+- **分子**是真正的收益：市值变化减去投入的钱。存款让 `V_end` 增加的金额正好等于 `F`，两者相互抵消，所以存款不算收益。
+- **分母**是期间平均投入的资本。一笔资金流只按它在组合里的那部分时间计算。`w_i` 从资金流当天的**开始**算起，因为同一天现金交易排在交易之前。
+- **算例**（也是一个 SQL 测试）：见上方的数字。为什么不是 10 %？股票涨了 10 %，但那 3,100 有半个月是闲置现金，没有收益，所以平均资本 11,600 赚了 1,000。
+- **没有采用：** 真正的时间加权收益率。它需要在每次资金流当天对整个组合估值，查询更多，也更难解释。修正 Dietz 是常用的按月近似方法。
+
+### S&P 500 return / 标普 500 收益率
+**EN:** `spx_return = close(latest ≤ period_end) / close(latest ≤ previous month end) − 1`, over the same months as the portfolio. In the first month the base is the latest ^GSPC close **before** `start_date`, which matches V_start = cash at the start of that day. If no earlier close exists (data starts that day, as for the real portfolio starting 2021-01-04), the base is the **open** of the first price day ≥ `start_date`. `excess_return_pct` = portfolio − S&P, in percentage points.
+**中文：** `spx_return = close(≤ period_end 的最新) / close(≤ 上月末的最新) − 1`，月份与组合相同。第一个月的基准是 `start_date` **之前**最新的 ^GSPC 收盘价，对应 V_start = 当天开始时的现金。如果没有更早的收盘价（数据从当天才开始，例如 2021-01-04 开始的那个真实 portfolio），就用 `start_date` 当天或之后第一个价格日的**开盘价**。`excess_return_pct` = 组合 − 标普，单位是百分点。
+
+### Window functions used / 用到的窗口函数
+**EN:**
+- **`LAG(x) OVER (PARTITION BY portfolio_id ORDER BY month)`** gives the previous row's value inside the same portfolio, which is the previous month here. It provides `start_value` (the previous `end_value`) and `spx_start` (the previous month-end close). The first row has no previous row, so LAG returns NULL and `COALESCE` substitutes `starting_cash` / `spx_base`.
+- **The filter must come after LAG.** In one SELECT, `WHERE` runs *before* window functions. If `month >= p_from_month` were in the same SELECT as LAG, the first shown month would have no previous row and would wrongly get `starting_cash`. So LAG runs in the CTE `monthly`, and the next CTE (`returns`) filters. (Test: from = June still shows start_value 11,000.)
+- **Cumulative return = a product,** (1+r₁)(1+r₂)… − 1, but PostgreSQL has no product aggregate. The trick is `ln(a·b) = ln a + ln b`, so the product is `EXP(SUM(LN(1 + r)) OVER (... ROWS UNBOUNDED PRECEDING)) − 1`, a running SUM like the one in `fn_portfolio_history`.
+  - Example: 1.10 × 0.90 = exp(ln 1.10 + ln 0.90) = exp(0.09531 − 0.10536) = exp(−0.01005) = 0.99, so the cumulative return is **−1.00 %** (also a test).
+  - `LN` of a value ≤ 0 is an error, so a CASE turns 1 + r ≤ 0 into NULL. The cumulative return starts at the first **shown** month.
+- **`SUM(...) FILTER (WHERE ...)`** is an aggregate over only some rows. One GROUP BY gives the cash at period end (all events up to it), the net flow and the weighted flow (only cash transactions inside the period).
+
+**中文：**
+- **`LAG(x) OVER (PARTITION BY portfolio_id ORDER BY month)`** 取同一 portfolio 中上一行的值，这里就是上个月。用它得到 `start_value`（上个月的 `end_value`）和 `spx_start`（上月末收盘价）。第一行没有上一行，LAG 返回 NULL，`COALESCE` 换成 `starting_cash` / `spx_base`。
+- **过滤必须放在 LAG 之后。** 在同一个 SELECT 里，`WHERE` 在窗口函数*之前*执行。如果把 `month >= p_from_month` 和 LAG 写在同一个 SELECT 里，显示的第一个月就没有上一行，会错误地用 `starting_cash`。所以 LAG 在 CTE `monthly` 里计算，下一个 CTE（`returns`）再过滤。（测试：from = 6 月时 start_value 仍是 11,000。）
+- **累计收益是连乘**：(1+r₁)(1+r₂)… − 1，但 PostgreSQL 没有乘积聚合函数。技巧是 `ln(a·b) = ln a + ln b`，所以连乘 = `EXP(SUM(LN(1 + r)) OVER (... ROWS UNBOUNDED PRECEDING)) − 1`，和 `fn_portfolio_history` 里一样是累计 SUM。例：1.10 × 0.90 = exp(0.09531 − 0.10536) = 0.99，即 **−1.00 %**。`LN` 遇到 ≤ 0 的值会报错，所以用 CASE 把它变成 NULL。累计收益从**显示的**第一个月开始算。
+- **`SUM(...) FILTER (WHERE ...)`** 是只对部分行的聚合。一次 GROUP BY 同时得到期末现金（截至期末的所有事件）、净资金流和加权资金流（只算期间内的现金交易）。
+
+### CTE steps / CTE 步骤
+`pf` (portfolios + S&P base) → `months` (`generate_series`, one row per month) → `events` (`fn_portfolio_history`, once per portfolio) → `month_cash` / `month_positions` / `month_stock` (values at period end) → `monthly` (LAG) → `returns` (filter, Dietz) → final SELECT (round, cumulative).
+EN: Every price lookup is "latest close ≤ date" for one ticker, which uses the primary key (see point 3). All portfolios take about 20 ms on the real DB (1,361 rows).
+中文：每次价格查找都是"某只股票 ≤ 某日的最新收盘价"，走主键（见第 3 点）。真实数据库上所有 portfolio 约 20 ms（1,361 行）。
+
+### Real rows (portfolio 3) / 真实数据（portfolio 3）
+```
+   month    | start_value | end_value | net_flow |   r   |  spx  |  ex   |  cum  | cum_spx
+ 2025-04-01 |   137092.21 | 131819.75 |        0 | -3.85 | -0.76 | -3.08 | -3.85 |   -0.76
+ 2025-05-01 |   131819.75 | 148283.81 | 12000.00 |  3.36 |  6.15 | -2.80 | -0.62 |    5.34
+ 2025-06-01 |   148283.81 | 152004.89 |        0 |  2.51 |  4.96 | -2.45 |  1.88 |   10.57
+ 2025-09-01 |   158366.58 | 155933.21 | -4377.00 |  1.23 |  3.53 | -2.30 |  7.44 |   19.18
+```
+EN: Check of May by hand: the deposit is on 05-29, so w = 3/31. R = (148,283.81 − 131,819.75 − 12,000) / (131,819.75 + 12,000 × 3/31) = 4,464.06 / 132,981.04 = 3.36 %. A naive return would have been 12.49 %.
+中文：手算验证 5 月：存款在 05-29，w = 3/31，R = 4,464.06 / 132,981.04 = 3.36 %。朴素算法会得到 12.49 %。
+
+### Limitations / 限制
+- A month whose denominator is 0 (everything withdrawn) gets a NULL return, and the cumulative return skips it (treated as 0 %). 分母为 0 的月份（全部取出）收益为 NULL，累计时跳过（当作 0 %）。
+- Excess is rounded from the exact difference, so it can differ by 0.01 from (rounded portfolio − rounded S&P). 超额收益由精确差值再四舍五入，可能与"四舍五入后相减"差 0.01。
+- The current month shows 0 % until prices are refreshed (the real DB now has prices only to 2026-10-30). 价格未更新时，当前月显示 0 %（真实数据库现在价格只到 2026-10-30）。
 
 ---
 
@@ -227,13 +322,15 @@ CROSS JOIN LATERAL (
 - **q3:** ranks with ties and a skipped rank; 0% excluded; `p_limit` keeps ties; first and last close inside the period; one-day period; default end = today; no index
 - **q2:** values and order; sums to 100; stocks-only; before the start; all portfolios ±0.05; zero-value portfolio; default as_of = today; Cash = `v_cash_balance` for every portfolio; a deposit dated today counts by default but not as of the latest price date
 - **q5:** target 90 appears; 100 and NULL don't; default = today
+- **q1** (8 more tests, ticker AR1, May–June 2025): no flows +10 % vs S&P +10 %, excess 0; +10 % then −10 % gives a cumulative −1.00 %; a mid-month deposit gives Modified Dietz 8.62 % (not 41 %); from = June keeps start_value 11,000 and restarts the cumulative; default to = current month with no gaps; NULL portfolio = single calls; latest end_value = `v_cash_balance` + `fn_holding_pl` market value for every portfolio
 
-Totals: **311 SQL tests and 30 pytest tests, all passing.**
+Totals (after query 1): **319 SQL tests and 30 pytest tests, all passing.**
 
 **中文：** 26 个新的 SQL 测试（"ana"、"q2"–"q5"）使用只在 2025 年有价格的虚构股票，所以这些时间段里没有其他测试数据。
 - **q4：** 截至 d4、d2、d1 以及第一笔交易之前的值；已清仓持仓；默认日期 = 今天（收盘价取最新价格日期）；默认结果 = `v_holdings`
 - **q3：** 含并列和跳过名次的排名；0% 被排除；`p_limit` 保留并列；首尾收盘价在区间内；单日区间；默认结束日期 = 今天；不包括指数
 - **q2：** 数值和顺序；合计为 100；只算股票；开始日期之前；所有 portfolio 合计在 ±0.05 以内；总值为 0 的 portfolio；默认 as_of = 今天；每个 portfolio 的 Cash = `v_cash_balance`；今天的存款默认计入，但截至最新价格日期时不计入
 - **q5：** 目标价 90 出现；100 和 NULL 不出现；默认日期 = 今天
+- **q1**（新增 8 个测试，股票 AR1，2025 年 5–6 月）：无资金流 +10 % 对标普 +10 %，超额 0；+10 % 再 −10 % 累计 −1.00 %；月中存款的修正 Dietz 收益为 8.62 %（不是 41 %）；from = 6 月时 start_value 仍为 11,000，累计重新开始；默认 to = 当前月且没有缺月；NULL portfolio = 逐个调用的结果；每个 portfolio 最新的 end_value = `v_cash_balance` + `fn_holding_pl` 市值
 
-合计：**311 个 SQL 测试和 30 个 pytest 测试，全部通过。**
+合计（加上查询 1 之后）：**319 个 SQL 测试和 30 个 pytest 测试，全部通过。**

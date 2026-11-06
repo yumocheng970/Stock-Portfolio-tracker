@@ -32,6 +32,7 @@ SET client_min_messages = warning;
 
 -- Analysis queries (they use the views and fn_portfolio_history)
 \ir analysis/00_indexes.sql
+\ir analysis/01_monthly_returns.sql
 \ir analysis/02_sector_allocation.sql
 \ir analysis/03_top_movers.sql
 \ir analysis/04_holding_pl.sql

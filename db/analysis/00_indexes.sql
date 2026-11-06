@@ -1,22 +1,21 @@
 -- =====================================================================
 -- Paper-Trading Portfolio Tracker  (CS 5200, Yumo Cheng)
 -- Secondary indexes for the analysis queries (bonus)
--- Here, not in db/schema/, so `make apply-db` can add them to the real
--- database without a reset. IF NOT EXISTS makes the file re-runnable.
+-- Here, not in db/schema/, so `make apply-db` can add (or remove) them in
+-- the real database without a reset. IF [NOT] EXISTS makes it re-runnable.
 -- =====================================================================
 
--- Serves lookups by date across ALL tickers, e.g.
---     SELECT max(price_date) FROM daily_price [WHERE price_date <= ...]
--- The primary key (ticker, price_date) can't serve that: price_date is
--- its SECOND column, so PostgreSQL scans all rows (Seq Scan, 38k rows
--- for 26 tickers x ~6 years, growing every day). With this index it is
--- a one-row Index Only Scan Backward (measured: 1.98 ms -> 0.10 ms).
--- Status: the analysis functions now default to CURRENT_DATE and no
--- longer run this lookup; db/tests/check_prices.sql still does. Keep or
--- drop is decided with query 1 (monthly returns), which may look up
--- month-end dates by price_date alone.
---
--- Not needed: "latest close of ONE ticker on or before a date"
--- (WHERE ticker = x AND price_date <= d ORDER BY price_date DESC LIMIT 1)
--- already uses the primary key, because ticker is its first column.
-CREATE INDEX IF NOT EXISTS idx_daily_price_date ON daily_price (price_date);
+-- idx_daily_price_date ON daily_price (price_date): added, measured, DROPPED.
+-- Added for "latest price date across ALL tickers"
+--     SELECT max(price_date) FROM daily_price
+-- which the primary key (ticker, price_date) can't serve (price_date is its
+-- SECOND column). Measured: Seq Scan 1.98 ms -> Index Only Scan 0.10 ms.
+-- Dropped when unused: the analysis functions default to CURRENT_DATE and
+-- never run that lookup. Every price lookup they do is per ticker
+-- ("latest close of ONE ticker on or before a date", or ^GSPC), which
+-- uses the primary key. EXPLAIN ANALYZE of fn_monthly_returns() on the
+-- real DB (index still present) showed only pk_daily_price, never
+-- idx_daily_price_date. An unused index only costs space and slows the
+-- daily price inserts. Only db/tests/check_prices.sql still runs
+-- max(price_date): a 2 ms Seq Scan in a manual check is fine.
+DROP INDEX IF EXISTS idx_daily_price_date;

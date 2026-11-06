@@ -123,14 +123,16 @@ Done so far:
   (DECIDED: so reruns are identical, ids included)
 - db/apply.sql: idempotent objects only (views, programmability, analysis, indexes), included by
   reset.sql; `make apply-db` applies it to portfolio_tracker in one transaction, data untouched.
-- db/analysis/: 00_indexes.sql (idx_daily_price_date for max(price_date) defaults),
+- db/analysis/: 00_indexes.sql (idx_daily_price_date DROPPED: added, measured, unused per EXPLAIN),
+  fn_monthly_returns(portfolio, from_month, to_month) [Q1, Modified Dietz (flows weighted from the
+  start of their day), vs ^GSPC (first-month base = close before start_date, else open), LAG for
+  start values, filter after LAG, cumulative = EXP(SUM(LN(1+r))) OVER, last month partial to today],
   fn_sector_allocation(portfolio, as_of, include_cash) [Q2, cash row by default],
   fn_top_movers(start, end, limit) [Q3, RANK, ties kept, gainers > 0 / losers < 0],
   fn_holding_pl(portfolio, as_of) [Q4, trades up to as_of via fn_position_history],
   fn_watchlist_targets_reached(investor, as_of) [Q5]. NULL date = today (CURRENT_DATE, DECIDED:
-  agrees with v_cash_balance); closes = latest close <= that date. idx_daily_price_date: keep/drop
-  to be decided with query 1 (analysis defaults no longer use max(price_date)).
-Next: analysis query 1 (monthly return vs S&P 500), then the Python CLI app
+  agrees with v_cash_balance); closes = latest close <= that date (per ticker, uses the PK).
+Next: the Python CLI app
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

@@ -1364,6 +1364,74 @@ SELECT pg_temp.check('q5: default date = today; closes still from the latest pri
 SELECT pg_temp.expect_ok('ana: cleanup watchlist Ana Watch (cascades to its 3 items)',
     $q$ DELETE FROM watchlist WHERE watchlist_name = 'Ana Watch' $q$);
 
+-- Query 1: fn_monthly_returns ---------------------------------------------------
+-- AR1 closes: 05-01 100, 05-30 (Fri) 110, 06-30 99. ^GSPC: 04-30 4000, 05-30 4400,
+-- 06-30 3960. Month ends 05-31 (Sat) use the 05-30 close (latest <= month end).
+-- Ana Ret:     10,000 from 05-01, BUY 100 AR1 @ 100 on 05-01 (all cash invested)
+-- Ana Ret Dep: the same + DEPOSIT 3,100 on 05-16
+SELECT pg_temp.expect_ok('ana q1: setup AR1 + ^GSPC prices, portfolios Ana Ret / Ana Ret Dep',
+    $q$
+    INSERT INTO stock (ticker, company_name) VALUES ('AR1', 'Analysis Test AR1');
+    INSERT INTO daily_price VALUES
+        ('AR1',   '2025-05-01',  100,  105,   95,  100, 1000),
+        ('AR1',   '2025-05-30',  110,  115,  105,  110, 1000),
+        ('AR1',   '2025-06-30',   99,  105,   95,   99, 1000),
+        ('^GSPC', '2025-04-30', 4000, 4010, 3990, 4000, 0),
+        ('^GSPC', '2025-05-30', 4400, 4410, 4390, 4400, 0),
+        ('^GSPC', '2025-06-30', 3960, 3970, 3950, 3960, 0);
+    INSERT INTO portfolio (investor_id, portfolio_name, starting_cash, start_date)
+    SELECT pg_temp.inv('alice@example.com'), v.name, 10000, '2025-05-01'
+    FROM (VALUES ('Ana Ret'), ('Ana Ret Dep')) AS v(name);
+    INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Ana Ret'),     'AR1', 'BUY', 100, 100, '2025-05-01'),
+        (pg_temp.pf('Ana Ret Dep'), 'AR1', 'BUY', 100, 100, '2025-05-01');
+    INSERT INTO cash_transaction (portfolio_id, txn_type, amount, txn_date)
+    VALUES (pg_temp.pf('Ana Ret Dep'), 'DEPOSIT', 3100, '2025-05-16');
+    $q$);
+SELECT pg_temp.check('q1: no flows, May: 10000 -> 11000, +10.00%, S&P 4000 -> 4400 +10.00%, excess 0.00',
+    (SELECT month = '2025-05-01' AND period_start = '2025-05-01' AND period_end = '2025-05-31'
+            AND start_value = 10000 AND end_value = 11000 AND net_flow = 0
+            AND portfolio_return_pct = 10.00 AND spx_return_pct = 10.00 AND excess_return_pct = 0.00
+            AND cum_portfolio_pct = 10.00 AND cum_spx_pct = 10.00
+     FROM fn_monthly_returns(pg_temp.pf('Ana Ret'), NULL, '2025-05-01')));
+SELECT pg_temp.check('q1: +10% then -10% -> June -10.00 / -10.00, cumulative 1.10 x 0.90 - 1 = -1.00 / -1.00',
+    (SELECT array_agg(portfolio_return_pct || ' ' || spx_return_pct || ' ' || excess_return_pct
+                      || ' ' || cum_portfolio_pct || ' ' || cum_spx_pct ORDER BY month)
+     FROM fn_monthly_returns(pg_temp.pf('Ana Ret'), NULL, '2025-06-15'))
+    = ARRAY['10.00 10.00 0.00 10.00 10.00', '-10.00 -10.00 0.00 -1.00 -1.00']);
+-- Modified Dietz by hand: V_end = 100 x 110 + 3100 = 14100, F = 3100,
+-- w = (31 - 16 + 1) / 31 = 16/31, so R = (14100 - 10000 - 3100) / (10000 + 3100 x 16/31)
+-- = 1000 / 11600 = 8.62% (a naive (V_end - V_start) / V_start would say 41.00%)
+SELECT pg_temp.check('q1: deposit 3100 mid-May is not a gain: Modified Dietz 8.62% (not 41.00%), S&P still 10.00',
+    (SELECT start_value = 10000 AND end_value = 14100 AND net_flow = 3100
+            AND portfolio_return_pct = 8.62 AND spx_return_pct = 10.00 AND excess_return_pct = -1.38
+     FROM fn_monthly_returns(pg_temp.pf('Ana Ret Dep'), '2025-05-01', '2025-05-31')));
+SELECT pg_temp.check('q1: from = June -> one row, start_value 11000 (LAG still saw May), cumulative restarts (-10.00)',
+    (SELECT count(*) = 1 AND bool_and(start_value = 11000 AND cum_portfolio_pct = -10.00
+                                      AND cum_spx_pct = -10.00)
+     FROM fn_monthly_returns(pg_temp.pf('Ana Ret'), '2025-06-01', '2025-06-30')));
+SELECT pg_temp.check('q1: default to = current month (partial, period_end today), no gaps since May 2025',
+    (SELECT count(*) = (SELECT count(*) FROM generate_series('2025-05-01'::date,
+                                                             date_trunc('month', CURRENT_DATE), '1 month'))
+            AND max(month) = date_trunc('month', CURRENT_DATE)
+            AND max(period_end) = CURRENT_DATE
+     FROM fn_monthly_returns(pg_temp.pf('Ana Ret'))));
+SELECT pg_temp.check('q1: NULL portfolio = the single-portfolio calls',
+    (SELECT array_agg(r ORDER BY r.portfolio_id, r.month) FROM fn_monthly_returns() r
+     WHERE r.portfolio_id IN (pg_temp.pf('Ana Ret'), pg_temp.pf('Ana Ret Dep')))
+    = (SELECT array_agg(r ORDER BY r.portfolio_id, r.month) FROM (
+           SELECT * FROM fn_monthly_returns(pg_temp.pf('Ana Ret'))
+           UNION ALL
+           SELECT * FROM fn_monthly_returns(pg_temp.pf('Ana Ret Dep'))) r));
+SELECT pg_temp.check('q1: every portfolio''s latest end_value = v_cash_balance + market value (fn_holding_pl)',
+    NOT EXISTS (
+        SELECT 1
+        FROM (SELECT DISTINCT ON (r.portfolio_id) r.portfolio_id, r.end_value
+              FROM fn_monthly_returns() r ORDER BY r.portfolio_id, r.month DESC) r
+        JOIN v_cash_balance cb ON cb.portfolio_id = r.portfolio_id
+        WHERE r.end_value IS DISTINCT FROM cb.cash_balance
+              + COALESCE((SELECT SUM(h.market_value) FROM fn_holding_pl(r.portfolio_id) h), 0)));
+
 -- =====================================================================
 -- watchlist
 -- =====================================================================
