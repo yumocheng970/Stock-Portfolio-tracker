@@ -20,14 +20,16 @@ constraints, triggers and procedures.
 
 ## 1. Install the prerequisites (download pages)
 
-| Software | Version | Download | Needed for |
-|---|---|---|---|
-| PostgreSQL | 16 or newer | https://www.postgresql.org/download/ | the database (server + `psql` / `createdb`) |
-| Miniforge (conda) | any recent | https://github.com/conda-forge/miniforge | Python 3.12 + the libraries (recommended) |
-| *or* Python | 3.12 | https://www.python.org/downloads/ | if you use `pip` + `venv` instead of conda |
-| Git | any | https://git-scm.com/downloads | getting the code (not needed if you use the zip) |
-| DBeaver (optional) | any | https://dbeaver.io/download/ | browsing the database / restoring the dump in a GUI |
-| WSL (Windows, optional) | WSL 2 | https://learn.microsoft.com/windows/wsl/install | the tested setup on Windows |
+| Software | Required | Tested | Download | Needed for |
+|---|---|---|---|---|
+| PostgreSQL | 16 or newer | 16.15 | https://www.postgresql.org/download/ | the database (server + `psql` / `createdb`) |
+| Miniforge (conda) | any recent | conda 26.1.0 | https://github.com/conda-forge/miniforge | Python 3.12 + the libraries (recommended) |
+| *or* Python | 3.12 | 3.12.14 | https://www.python.org/downloads/ | if you use `pip` + `venv` instead of conda |
+| Git | any | 2.43.0 | https://git-scm.com/downloads | getting the code (not needed if you use the zip) |
+| GNU Make (optional) | any | 4.3 | https://www.gnu.org/software/make/ (Ubuntu: `apt install make`; macOS: part of the Xcode Command Line Tools) | the developer shortcuts in section 9 (`make test`, ...); not needed to run the app |
+| DBeaver (optional) | any recent | not version-tested | https://dbeaver.io/download/ | browsing the database / restoring the dump in a GUI |
+| WSL (Windows, optional) | WSL 2 + Ubuntu 24.04 | Ubuntu 24.04.1 | https://learn.microsoft.com/windows/wsl/install | the tested setup on Windows |
+| Homebrew (macOS) | any | not tested | https://brew.sh | installing PostgreSQL and Git on macOS |
 
 **Linux / WSL (Ubuntu), tested:**
 ```bash
@@ -46,6 +48,19 @@ all commands below. `make` is not available on Windows; every command is also gi
 (Homebrew: https://brew.sh). Your macOS user becomes a database user without a password.
 Install Miniforge.
 
+### Where everything is installed (default locations)
+
+| | Linux / WSL (Ubuntu, tested) | Windows, native (untested) | macOS, Homebrew (untested) |
+|---|---|---|---|
+| PostgreSQL programs (`psql`, `createdb`, ...) | `/usr/lib/postgresql/16/bin`; `apt` puts `psql` / `createdb` on PATH (`/usr/bin`) for you | `C:\Program Files\PostgreSQL\16\bin`: **not** on PATH by default; **add it to PATH** (Settings > System > About > Advanced system settings > Environment Variables > Path > New), or type the full path | `/opt/homebrew/opt/postgresql@16/bin` (Apple silicon) or `/usr/local/opt/postgresql@16/bin` (Intel): **not** on PATH (Homebrew installs `postgresql@16` "keg-only"); add it: `echo 'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc` |
+| PostgreSQL data (created by the installer; you never edit it) | `/var/lib/postgresql/16/main` | `C:\Program Files\PostgreSQL\16\data` | `/opt/homebrew/var/postgresql@16` |
+| Miniforge | `~/miniforge3` (e.g. `/home/<you>/miniforge3`) | `C:\Users\<you>\miniforge3` | `~/miniforge3` |
+| The `spt` environment (step 3) | `~/miniforge3/envs/spt` | `C:\Users\<you>\miniforge3\envs\spt` | `~/miniforge3/envs/spt` |
+| The project folder (step 2) | anywhere you like, e.g. `~/projects/Stock-Portfolio-tracker` (tested at `/home/<you>/projects/5200/Stock-Portfolio-tracker`); in WSL keep it on the Linux side, not under `/mnt/c` | anywhere, e.g. `C:\Users\<you>\projects\cheng_project` (a path without spaces is easiest) | anywhere, e.g. `~/projects/cheng_project` |
+
+`psql` / `createdb` are only needed to restore the dump (step 5; DBeaver can do that instead).
+The app itself connects through the Python driver and does not need them on PATH.
+
 ## 2. Get the code
 ```bash
 git clone https://github.com/yumocheng970/Stock-Portfolio-tracker.git
@@ -55,17 +70,20 @@ cd Stock-Portfolio-tracker
 
 ## 3. Create the Python environment
 
-| Library | Tested version | Used for |
-|---|---|---|
-| Python | 3.12.14 | everything |
-| psycopg (+ libpq) | 3.3.4 (libpq 18.6) | PostgreSQL driver |
-| python-dotenv | 1.2.4 | reading `.env` |
-| tabulate | 0.10.0 | tables in the terminal |
-| matplotlib | 3.11.2 | PNG charts |
-| pandas | 3.0.6 | price download (yfinance) |
-| yfinance | 1.7.0 | Yahoo Finance prices (price loader, Admin → Add a stock) |
-| Faker | 40.40.0 (exact) | sample investor names / emails (reproducible seed) |
-| pytest | 9.2.0 | tests |
+| Library | Tested version | Used for | Download page |
+|---|---|---|---|
+| Python | 3.12.14 | everything | https://www.python.org/downloads/ |
+| psycopg (+ libpq) | 3.3.4 (libpq 18.6) | PostgreSQL driver | https://pypi.org/project/psycopg/ |
+| python-dotenv | 1.2.4 | reading `.env` | https://pypi.org/project/python-dotenv/ |
+| tabulate | 0.10.0 | tables in the terminal | https://pypi.org/project/tabulate/ |
+| matplotlib | 3.11.2 | PNG charts | https://pypi.org/project/matplotlib/ |
+| pandas | 3.0.6 | price download (yfinance) | https://pypi.org/project/pandas/ |
+| yfinance | 1.7.0 | Yahoo Finance prices (price loader, Admin → Add a stock) | https://pypi.org/project/yfinance/ |
+| Faker | 40.40.0 (exact) | sample investor names / emails (reproducible seed) | https://pypi.org/project/Faker/ |
+| pytest | 9.2.0 | tests | https://pypi.org/project/pytest/ |
+
+You don't download these one by one: step 3 installs all of them (conda from conda-forge,
+https://conda-forge.org/, or pip from PyPI).
 
 With conda (recommended, all platforms):
 ```bash
