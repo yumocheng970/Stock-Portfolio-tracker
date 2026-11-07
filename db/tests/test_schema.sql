@@ -1298,6 +1298,26 @@ SELECT pg_temp.check('  -> nothing restored (only the d2 trade is there)',
     (SELECT count(*) = 1 FROM trade WHERE portfolio_id = pg_temp.pf('Rst Spent')));
 
 -- =====================================================================
+-- trg_stock_benchmark_protected (db/programmability/08_stock_protection.sql)
+-- ^GSPC exists from the stock tests above (INDEX, price on 2024-01-02).
+-- =====================================================================
+SELECT pg_temp.expect_error('benchmark: DELETE ^GSPC is blocked',
+    $q$ DELETE FROM stock WHERE ticker = '^GSPC' $q$, 'trg_stock_benchmark_protected');
+SELECT pg_temp.expect_error('benchmark: renaming ^GSPC is blocked',
+    $q$ UPDATE stock SET ticker = '^SPX' WHERE ticker = '^GSPC' $q$, 'trg_stock_benchmark_protected');
+SELECT pg_temp.check('  -> ^GSPC and its prices are still there',
+    EXISTS (SELECT 1 FROM stock WHERE ticker = '^GSPC')
+    AND EXISTS (SELECT 1 FROM daily_price WHERE ticker = '^GSPC'));
+SELECT pg_temp.expect_ok('benchmark: editing its company name is allowed',
+    $q$ UPDATE stock SET company_name = 'S&P 500 Index' WHERE ticker = '^GSPC' $q$);
+SELECT pg_temp.expect_ok('benchmark: other stocks can still be renamed and deleted',
+    $q$
+    INSERT INTO stock (ticker, company_name) VALUES ('BMK1', 'Benchmark Test');
+    UPDATE stock SET ticker = 'BMK2' WHERE ticker = 'BMK1';
+    DELETE FROM stock WHERE ticker = 'BMK2';
+    $q$);
+
+-- =====================================================================
 -- analysis queries 2-5 (db/analysis/)
 -- Fictional tickers with prices only in 2025, so no other test data is
 -- in these periods:

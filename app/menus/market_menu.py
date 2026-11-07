@@ -1,13 +1,13 @@
-"""Market data menu (Main menu -> 2): top movers for now; price history and
-price refresh come in App 6."""
+"""Market data menu (Main menu -> 2): top movers, list of stocks, price history.
+(Adding stocks and refreshing prices are in Admin.)"""
 from datetime import timedelta
 
 from app import data_access as da
 from app.display import print_table
 from app.errors import safe_call
-from app.inputs import ask_date, pause
+from app.inputs import ask_date, ask_int, pause
 from app.menu import run_menu
-from app.menus.common import show_price_range
+from app.menus.common import ask_ticker, show_price_range
 
 MOVER_COLUMNS = [
     ("rank", "Rank"), ("ticker", "Ticker"), ("company_name", "Company"),
@@ -16,10 +16,70 @@ MOVER_COLUMNS = [
 ]
 
 
+STOCK_COLUMNS = [
+    ("ticker", "Ticker"), ("company_name", "Company"), ("sector_name", "Sector"),
+    ("exchange_name", "Exchange"), ("security_type", "Type"), ("close", "Latest close"),
+    ("close_date", "Date"),
+]
+PRICE_COLUMNS = [
+    ("price_date", "Date"), ("open", "Open"), ("high", "High"), ("low", "Low"),
+    ("close", "Close"), ("volume", "Volume"),
+]
+
+
 def market_menu(session):
     run_menu("Market data", [
-        ("Top movers", top_movers),
+        ("Top movers",    top_movers),
+        ("List stocks",   list_stocks),
+        ("Price history", price_history),
     ], session)
+
+
+def list_stocks(session):
+    ok, sectors = safe_call(da.list_sectors, session.conn)
+    if not ok:
+        pause()
+        return
+    print("\nFilter by sector: " + ", ".join(f"{n}) {row['sector_name']}"
+                                             for n, row in enumerate(sectors, start=1)))
+    choice = ask_int("Sector number (Enter = all)", minimum=1, maximum=len(sectors), required=False)
+    sector_id = sectors[choice - 1]["sector_id"] if choice else None
+    ok, rows = safe_call(da.list_stocks, session.conn, sector_id)
+    if ok:
+        if rows:
+            print_table(rows, STOCK_COLUMNS)
+        else:
+            print("  No stocks in this sector.")
+    pause()
+
+
+def price_history(session):
+    print("\nPrice history (indexes such as ^GSPC included)")
+    ticker = ask_ticker(session, allow_index=True)
+    if ticker is None:
+        return
+    ok, window = safe_call(da.price_window, session.conn, ticker)
+    if not ok:
+        pause()
+        return
+    if window["end"] is None:
+        print(f"  {ticker} has no prices yet.")
+        pause()
+        return
+    print(f"  (Enter = the last 30 trading days: {window['start']} to {window['end']})")
+    start = ask_date("Start date", default=window["start"])
+    end = ask_date("End date", default=window["end"])
+    if end < start:
+        print(f"  The end date {end} is before the start date {start}.")
+        pause()
+        return
+    ok, rows = safe_call(da.price_history, session.conn, ticker, start, end)
+    if ok:
+        if rows:
+            print_table(rows, PRICE_COLUMNS)
+        else:
+            print(f"  No prices for {ticker} between {start} and {end} (weekends / holidays?).")
+    pause()
 
 
 def top_movers(session):

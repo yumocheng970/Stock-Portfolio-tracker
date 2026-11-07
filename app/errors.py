@@ -17,6 +17,7 @@ from decimal import Decimal
 import psycopg
 
 from app.data_access import NotFoundError
+from app.market_data import DownloadError
 
 MESSAGES = {
     # --- sector / exchange -------------------------------------------------
@@ -92,6 +93,7 @@ MESSAGES = {
     "trg_cash_txn_immutable":    "Cash transactions can't be changed or deleted. "
                                  "To fix a mistake, record an opposite transaction.",
     "trg_cash_txn_no_truncate":  "Cash transactions can't be removed in bulk (TRUNCATE).",
+    "trg_stock_benchmark_protected": "^GSPC can't be deleted or renamed (its company name can be edited).",
     "trg_cash_txn_future_date":  "A cash transaction can't be dated in the future.",
     "trg_date_before_start":     "The date is before the portfolio's start date.",
     "trg_date_before_latest":    "The date is before this portfolio's latest trade or cash transaction "
@@ -145,7 +147,7 @@ def format_money_in_text(text):
 
 def friendly_message(error):
     """The sentence to show the user for any exception from a database action."""
-    if isinstance(error, NotFoundError):
+    if isinstance(error, (NotFoundError, DownloadError)):
         return str(error)
     if isinstance(error, psycopg.OperationalError):
         return "Lost the connection to the database. Please restart the app."
@@ -177,6 +179,6 @@ def safe_call(func, *args, **kwargs):
     """
     try:
         return True, func(*args, **kwargs)
-    except (psycopg.Error, NotFoundError) as error:
+    except (psycopg.Error, NotFoundError, DownloadError) as error:
         print(f"\n  !! {friendly_message(error)}")
         return False, None

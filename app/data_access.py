@@ -528,3 +528,173 @@ def top_movers(conn, start, end=None, limit=5):
     """Analysis query 3: top gainers and losers between two dates (ties kept)."""
     return _fetch_all(conn, "SELECT * FROM fn_top_movers(%s::date, %s::date, %s::int)",
                       (start, end, limit))
+
+
+# ---------------------------------------------------------------------
+# Market data and admin (App 6)
+# ---------------------------------------------------------------------
+def list_stocks(conn, sector_id=None):
+    """Stocks (and the index) with sector, exchange, type and latest close (on or
+    before today). sector_id None = all."""
+    return _fetch_all(conn, """
+        SELECT s.ticker, s.company_name, sec.sector_name, ex.exchange_name, s.security_type,
+               c.close, c.price_date AS close_date
+        FROM stock s
+        LEFT JOIN sector sec  ON sec.sector_id  = s.sector_id
+        LEFT JOIN exchange ex ON ex.exchange_id = s.exchange_id
+        LEFT JOIN LATERAL (
+            SELECT dp.close, dp.price_date FROM daily_price dp
+            WHERE dp.ticker = s.ticker AND dp.price_date <= CURRENT_DATE
+            ORDER BY dp.price_date DESC
+            LIMIT 1
+        ) c ON true
+        WHERE %(sector)s::int IS NULL OR s.sector_id = %(sector)s::int
+        ORDER BY s.security_type DESC, s.ticker          -- STOCK before INDEX
+    """, {"sector": sector_id})
+
+
+def get_stock(conn, ticker):
+    """One stock with its sector and exchange names, or None."""
+    return _fetch_one(conn, """
+        SELECT s.ticker, s.company_name, s.security_type, sec.sector_name, ex.exchange_name
+        FROM stock s
+        LEFT JOIN sector sec  ON sec.sector_id  = s.sector_id
+        LEFT JOIN exchange ex ON ex.exchange_id = s.exchange_id
+        WHERE s.ticker = upper(btrim(%s))
+    """, (ticker,))
+
+
+def list_sectors(conn):
+    return _fetch_all(conn, """
+        SELECT sec.sector_id, sec.sector_name,
+               (SELECT count(*) FROM stock s WHERE s.sector_id = sec.sector_id) AS stocks
+        FROM sector sec ORDER BY sec.sector_name
+    """)
+
+
+def list_exchanges(conn):
+    return _fetch_all(conn, """
+        SELECT ex.exchange_id, ex.exchange_name,
+               (SELECT count(*) FROM stock s WHERE s.exchange_id = ex.exchange_id) AS stocks
+        FROM exchange ex ORDER BY ex.exchange_name
+    """)
+
+
+def price_window(conn, ticker, days=30):
+    """Default date range for the price history: the last `days` price dates
+    of this ticker -> {"start": date, "end": date} (both None if no prices)."""
+    return _fetch_one(conn, """
+        SELECT min(price_date) AS start, max(price_date) AS end
+        FROM (SELECT price_date FROM daily_price
+              WHERE ticker = upper(btrim(%s))
+              ORDER BY price_date DESC
+              LIMIT %s) last_days
+    """, (ticker, days))
+
+
+def price_history(conn, ticker, start, end):
+    """Daily prices of one ticker between two dates (inclusive), oldest first."""
+    return _fetch_all(conn, """
+        SELECT price_date, open, high, low, close, volume
+        FROM daily_price
+        WHERE ticker = upper(btrim(%s)) AND price_date BETWEEN %s AND %s
+        ORDER BY price_date
+    """, (ticker, start, end))
+
+
+def _ensure_sector_and_exchange(cur, sector_name, exchange_name):
+    """Insert the sector / exchange if it doesn't exist yet (inside the caller's
+    transaction, so a later failure removes it again)."""
+    if sector_name is not None:
+        cur.execute("INSERT INTO sector (sector_name) VALUES (btrim(%s)) "
+                    "ON CONFLICT (sector_name) DO NOTHING", (sector_name,))
+    if exchange_name is not None:
+        cur.execute("INSERT INTO exchange (exchange_name) VALUES (btrim(%s)) "
+                    "ON CONFLICT (exchange_name) DO NOTHING", (exchange_name,))
+
+
+def add_stock_with_prices(conn, ticker, company_name, sector_name, exchange_name, rows):
+    """Add a stock and its downloaded prices in ONE transaction: if anything is
+    refused (duplicate ticker, bad format, ...) nothing at all is saved, not even
+    a new sector or exchange. A ticker starting with ^ is an INDEX (like the loader).
+    rows: (ticker, date, open, high, low, close, volume) tuples from market_data.
+    Returns the number of price rows inserted."""
+    ticker = ticker.strip().upper()
+    security_type = "INDEX" if ticker.startswith("^") else "STOCK"
+    with conn.transaction(), conn.cursor() as cur:
+        _ensure_sector_and_exchange(cur, sector_name, exchange_name)
+        cur.execute("""
+            INSERT INTO stock (ticker, company_name, security_type, sector_id, exchange_id)
+            VALUES (%s, btrim(%s), %s,
+                    (SELECT sector_id   FROM sector   WHERE sector_name   = btrim(%s)),
+                    (SELECT exchange_id FROM exchange WHERE exchange_name = btrim(%s)))
+        """, (ticker, company_name, security_type, sector_name, exchange_name))
+        cur.executemany("""
+            INSERT INTO daily_price (ticker, price_date, open, high, low, close, volume)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, [(ticker,) + tuple(row[1:]) for row in rows])
+        return cur.rowcount
+
+
+def update_stock(conn, ticker, company_name=None, sector_name=None, exchange_name=None):
+    """Change company name / sector / exchange (None = keep). A new sector or
+    exchange name is created in the same transaction."""
+    with conn.transaction(), conn.cursor() as cur:
+        _ensure_sector_and_exchange(cur, sector_name, exchange_name)
+        cur.execute("""
+            UPDATE stock
+            SET company_name = COALESCE(btrim(%(company)s), company_name),
+                sector_id    = COALESCE((SELECT sector_id FROM sector
+                                         WHERE sector_name = btrim(%(sector)s)), sector_id),
+                exchange_id  = COALESCE((SELECT exchange_id FROM exchange
+                                         WHERE exchange_name = btrim(%(exchange)s)), exchange_id)
+            WHERE ticker = upper(btrim(%(ticker)s))
+            RETURNING ticker
+        """, {"company": company_name, "sector": sector_name, "exchange": exchange_name,
+              "ticker": ticker})
+        if cur.fetchone() is None:
+            raise NotFoundError(f"There is no stock {ticker.strip().upper()}.")
+
+
+def stock_usage(conn, ticker):
+    """What depends on a ticker: what a rename takes along, or a delete removes / is blocked by."""
+    return _fetch_one(conn, """
+        SELECT (SELECT count(*) FROM daily_price    WHERE ticker = t.ticker) AS prices,
+               (SELECT count(*) FROM trade          WHERE ticker = t.ticker) AS trades,
+               (SELECT count(*) FROM watchlist_item WHERE ticker = t.ticker) AS watchlist_items
+        FROM (SELECT upper(btrim(%s)) AS ticker) t
+    """, (ticker,))
+
+
+def rename_ticker(conn, old, new):
+    """UPDATE stock SET ticker: ON UPDATE CASCADE carries the change to daily_price,
+    from there to trade (whose audit trigger logs each trade with the OLD ticker),
+    and to watchlist_item."""
+    row = _fetch_one(conn, """
+        UPDATE stock SET ticker = upper(btrim(%s)) WHERE ticker = upper(btrim(%s))
+        RETURNING ticker
+    """, (new, old))
+    if row is None:
+        raise NotFoundError(f"There is no stock {old.strip().upper()}.")
+    return row["ticker"]
+
+
+def delete_stock(conn, ticker):
+    """Delete a stock: its prices and watchlist items cascade. If it has trades,
+    the RESTRICT FK fk_trade_daily_price refuses (trades must be kept)."""
+    row = _fetch_one(conn, """
+        DELETE FROM stock WHERE ticker = upper(btrim(%s)) RETURNING ticker
+    """, (ticker,))
+    if row is None:
+        raise NotFoundError(f"There is no stock {ticker.strip().upper()}.")
+
+
+def refresh_all_prices(conn, download=None):
+    """Insert-only refresh of EVERY stock in the stock table (also ones added in
+    the app), with the ETL loader's code: one transaction per ticker.
+    download None = the real yfinance download. Returns the loader's summary."""
+    from app import market_data           # here, not at the top: keeps data_access light
+    from etl import load_prices
+    tickers = [row["ticker"] for row in _fetch_all(conn, "SELECT ticker FROM stock ORDER BY ticker")]
+    return load_prices.refresh_tickers(conn, tickers, market_data.yesterday(),
+                                       download=download or market_data.download_prices)

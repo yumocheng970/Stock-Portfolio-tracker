@@ -86,6 +86,17 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **Display rounding = half up**, like PostgreSQL's `ROUND` and the price loader. Found by a test: Python formats `Decimal("12.345")` as `12.34` (round half to even, "banker's rounding"), so the app could have shown a different last digit than the database. `display.round2` now quantizes half up before formatting.
 - Shared prompts (price range, default date, ticker) moved to `app/menus/common.py`. Reports and portfolios import each other's menus, and a shared module avoids a circular import.
 
+### Python CLI app, App 6: market data and admin
+- **Add a stock = a "complicated translation" (bonus).** Ticker + names → a yfinance download of the full history (2021-01-01 to yesterday) → the loader's cleaning rules (cents half up; rows that would break a CHECK are skipped) → database rows.
+  - **All or nothing:** the download runs *before* the transaction. If it fails, returns nothing or has no usable rows, a `DownloadError` with a friendly sentence is shown and no transaction is opened.
+  - Then **one** transaction inserts the new sector / exchange (if one was typed), the stock and all its prices. Any refusal (duplicate ticker, bad format) rolls all of it back, the new sector included.
+- **One refresh code path.** The loader's per-ticker loop was moved out of `main()` into `refresh_tickers(conn, tickers, yesterday, download=…)`. `make load-prices` (tickers from the CSV) and the app's "Refresh all prices" (every row of the stock table, also app-added stocks) run the same insert-only code. A smoke test ran the refactored `main()` twice on the test DB with yfinance faked: the 2nd run inserted 0 rows.
+- **Benchmark protection (decided by me): `trg_stock_benchmark_protected`.** ^GSPC can't be deleted or renamed, because `fn_monthly_returns` looks it up by name. A delete would not be stopped by the trades' RESTRICT FK, because an index can't be traded, so its prices would cascade away silently. The company name can still be edited. It is a DB trigger, so DBeaver users are protected too.
+- **The app never writes `data/tickers.csv` (decided by me).** The CSV is the hand-kept bootstrap. An app writing into a repo file would mix runtime data with source code, and a rolled-back transaction couldn't undo the file change.
+- **A new sector or exchange is created inside the add-stock transaction**, so a failed add leaves no orphan sector. Otherwise sectors and exchanges are read-only lists.
+- **A ticker rename shows ON UPDATE CASCADE end to end:** stock → daily_price → trade (the audit trigger logs one UPDATE row per trade with the OLD ticker), and stock → watchlist_item. The app shows the counts first. Cash and holdings are unchanged (tested).
+- **Tests never use the network.** Every download is replaced with `unittest.mock` (`return_value`, `side_effect`, `assert_called_once_with`). An autouse fixture also makes any real `yfinance.Ticker` call raise, so a forgotten mock fails loudly instead of quietly downloading.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -101,6 +112,9 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - Under `make run`, Ctrl+C prints "make: *** Interrupt" (make reports the signal, which the app can't prevent). The README and the start screen say to exit with 0, and demos use `python -m app`.
 - Restore is all-or-nothing per trade: if the history no longer allows it (e.g. the cash was spent since), it is refused (`trg_cash_never_negative`), and the user must first make room (deposit, or restore in a different order).
 - The audit log records UPDATE and DELETE only; a restore shows up as the DELETE row's status "restored", not as its own audit row.
+- A stock added in the app is not in `data/tickers.csv`: after `reset.sql` + `make load-prices` it is gone unless it is added to the CSV by hand.
+- Old trade_audit rows keep the ticker they had. Restoring a trade that was deleted *before* a ticker rename fails with the friendly FK message (no price for the old ticker).
+- "Add a stock" and "Refresh all prices" need the network (Yahoo Finance). Failures are shown per ticker, and nothing partial is saved for an add.
 - The CLI app has no login or password: "choose investor" acts as the login (a stated simplification).
 - Identity sequences aren't rolled back with a transaction, so the rolled-back tests use up ids (e.g. the next investor in the test DB is 35, not 1). This is harmless: ids are only unique, not consecutive.
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.

@@ -26,3 +26,16 @@ def conn(monkeypatch):
         assert name == TEST_DB, f"refusing to run tests on database {name}"
         with connection.transaction(force_rollback=True):
             yield connection
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Every test: a real yfinance download fails at once. Tests must replace
+    the download with a fake (unittest.mock); if one forgets, it fails loudly
+    instead of quietly downloading from Yahoo."""
+    import yfinance
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("network disabled in tests: mock the download")
+
+    monkeypatch.setattr(yfinance, "Ticker", refuse)

@@ -180,6 +180,60 @@ def download_prices(ticker, start, end_inclusive):
 
 
 # ---------------------------------------------------------------------------
+# Refresh (used by main() below AND by the CLI app's "Refresh all prices")
+# ---------------------------------------------------------------------------
+def refresh_tickers(conn, symbols, yesterday, download=download_prices):
+    """Insert-only refresh of the given tickers, one transaction per ticker.
+
+    For each ticker: download only the dates after the last stored one (up to
+    `yesterday`), clean them, insert with ON CONFLICT DO NOTHING.
+    `download` is a parameter so tests can pass a fake (no network).
+    Returns {"inserted", "skipped", "up_to_date", "failed"} (failed = list of tickers).
+    """
+    summary = {"inserted": 0, "skipped": 0, "up_to_date": 0, "failed": []}
+
+    for symbol in symbols:
+        last = last_stored_date(conn, symbol)
+        start = last + timedelta(days=1) if last else FIRST_DATE
+        if start > yesterday:
+            summary["up_to_date"] += 1
+            log.info("%-6s already up to date (last %s)", symbol, last)
+            continue
+
+        try:
+            raw = download(symbol, start, yesterday)
+        except Exception as e:    # network error, Yahoo change, rate limit ...
+            log.error("%-6s download failed: %s", symbol, e)
+            summary["failed"].append(symbol)
+            continue
+
+        if not raw and last is None:
+            log.error("%-6s no data returned from yfinance", symbol)
+            summary["failed"].append(symbol)
+            continue
+
+        rows = []
+        skipped = 0
+        for price_date, o, h, l, c, v in raw:
+            if not (start <= price_date <= yesterday):   # safety: stay inside the window
+                continue
+            row, reason = clean_price_row(symbol, price_date, o, h, l, c, v)
+            if row is None:
+                log.warning("%-6s skip %s: %s", symbol, price_date, reason)
+                skipped += 1
+            else:
+                rows.append(row)
+
+        inserted = insert_prices(conn, rows) if rows else 0
+        summary["inserted"] += inserted
+        summary["skipped"] += skipped
+        log.info("%-6s %5d inserted, %d skipped (%s .. %s)",
+                 symbol, inserted, skipped, start, yesterday)
+
+    return summary
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
@@ -187,53 +241,10 @@ def main():
     tickers = read_tickers(TICKER_CSV)
     yesterday = date.today() - timedelta(days=1)
 
-    inserted_total = 0
-    skipped_total = 0
-    up_to_date = 0
-    failed = []
-
     with connect() as conn:
         log.info("Connected to database %s", conn.info.dbname)
         insert_reference_data(conn, tickers)
-
-        for t in tickers:
-            symbol = t["ticker"]
-            last = last_stored_date(conn, symbol)
-            start = last + timedelta(days=1) if last else FIRST_DATE
-            if start > yesterday:
-                up_to_date += 1
-                log.info("%-6s already up to date (last %s)", symbol, last)
-                continue
-
-            try:
-                raw = download_prices(symbol, start, yesterday)
-            except Exception as e:    # network error, Yahoo change, rate limit ...
-                log.error("%-6s download failed: %s", symbol, e)
-                failed.append(symbol)
-                continue
-
-            if not raw and last is None:
-                log.error("%-6s no data returned from yfinance", symbol)
-                failed.append(symbol)
-                continue
-
-            rows = []
-            skipped = 0
-            for price_date, o, h, l, c, v in raw:
-                if not (start <= price_date <= yesterday):   # safety: stay inside the window
-                    continue
-                row, reason = clean_price_row(symbol, price_date, o, h, l, c, v)
-                if row is None:
-                    log.warning("%-6s skip %s: %s", symbol, price_date, reason)
-                    skipped += 1
-                else:
-                    rows.append(row)
-
-            inserted = insert_prices(conn, rows) if rows else 0
-            inserted_total += inserted
-            skipped_total += skipped
-            log.info("%-6s %5d inserted, %d skipped (%s .. %s)",
-                     symbol, inserted, skipped, start, yesterday)
+        summary = refresh_tickers(conn, [t["ticker"] for t in tickers], yesterday)
 
         # Every ticker in the CSV should now have price rows
         with conn.cursor() as cur:
@@ -243,13 +254,14 @@ def main():
             )
             with_prices = cur.fetchone()[0]
 
+    failed = summary["failed"]
     print()
     print("=== Summary ===")
     print(f"Tickers in CSV:        {len(tickers)}")
     print(f"Tickers with prices:   {with_prices}")
-    print(f"Already up to date:    {up_to_date}")
-    print(f"Rows inserted:         {inserted_total}")
-    print(f"Rows skipped:          {skipped_total}")
+    print(f"Already up to date:    {summary['up_to_date']}")
+    print(f"Rows inserted:         {summary['inserted']}")
+    print(f"Rows skipped:          {summary['skipped']}")
     print(f"Failed tickers:        {', '.join(failed) if failed else 'none'}")
     return 1 if failed else 0
 

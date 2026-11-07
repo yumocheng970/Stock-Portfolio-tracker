@@ -66,6 +66,11 @@ Portfolios (App 2): List my portfolios / Create portfolio / Choose portfolio →
 1 Summary, 2 Buy, 3 Sell, 4 Trade history, 5 Reports, 6 Deposit cash, 7 Withdraw cash,
 8 Rename portfolio, 9 Delete portfolio.
 
+Market data (Main → 2): 1 Top movers, 2 List stocks (optional sector filter), 3 Price history
+(Enter = the last 30 price days). Admin (Main → 3): 1 Add a stock (downloads its prices; all or nothing),
+2 Edit a stock, 3 Rename a ticker, 4 Delete a stock, 5 Refresh all prices, 6 List sectors,
+7 List exchanges. ^GSPC can't be deleted or renamed (trigger).
+
 Reports (App 5): 1 Monthly return vs S&P 500 (from/to months; Enter at "to" = the month of the
 latest price date), 2 Sector allocation (as of a date, cash included), 3 P/L per holding (as of a
 date, open and closed, with totals). Market data (Main → 2): Top movers (start/end dates).
@@ -92,6 +97,6 @@ can't be before the portfolio's latest event, so "today" would block trading unt
 | **App 3** (done) | Trade history, edit / delete a trade, audit log, restore a deleted trade from trade_audit |
 | **App 4** (done) | Watchlists and items, targets reached (query 5) |
 | **App 5** (done) | Reports: monthly return vs S&P 500 (query 1), sector allocation (2), top movers (3), P/L per holding (4) |
-| App 6 | Market data (price history, refresh prices) and Admin (add a stock + download its prices, edit, delete) |
+| **App 6** (done) | Market data (price history, refresh prices) and Admin (add a stock + download its prices, edit, delete) |
 | Extras | PNG charts (e.g. portfolio vs S&P 500); CSV trade import (all-or-nothing, one transaction); rebalance to target % |
 | **Final step, before submission** | Replace raw tracebacks with a friendly "unexpected error" message + a log file. Until then, a Python bug (not a database error) still shows its traceback, so bugs stay visible during development. |

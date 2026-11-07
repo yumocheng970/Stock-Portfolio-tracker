@@ -125,6 +125,9 @@ Done so far:
   trg_date_before_latest when NEW equals the trade's LATEST audit row and that row is a DELETE
   (data-defined, no session flag). Start date, trg_trade_validate, FK and history replay still run.
   A restore adds no audit row.
+- db/programmability/08_stock_protection.sql: trg_stock_benchmark_protected (BEFORE UPDATE OR DELETE on
+  stock): ^GSPC can't be deleted or have its ticker changed (fn_monthly_returns looks it up by name);
+  company name edits allowed. DECIDED by user (App 6).
 - ETL B (sample users): etl/simulate.py (pure; walks each portfolio forward: BUY only what cash allows,
   SELL only what is held, cash before trades same day), etl/seed_sample_data.py (seed 5200, Faker
   40.40.0, SIM_END 2026-10-30; 15 investors, 1-3 portfolios, 20-60 trades via CALL execute_trade with
@@ -176,7 +179,7 @@ Done so far:
   da wrappers return exactly the fn_ output. menus/common.py: show_price_range, ask_event_date,
   ask_ticker (shared prompts). display: format_pct (+12.34 %), round2 = half UP like PostgreSQL.
   Roadmap: App 1 foundation+investor (DONE) | App 2 portfolio (DONE) | App 3 (DONE) | App 4 (DONE) |
-  App 5 (DONE) |
+  App 5 (DONE) | App 6 (DONE) |
   App 3 trade history/audit/restore | App 4 watchlists | App 5 reports (queries 1-5) |
   App 6 market data/admin | extras: PNG charts, CSV trade import (all-or-nothing), rebalance |
   final step before submission: friendly "unexpected error" message + log file instead of tracebacks.
@@ -187,7 +190,16 @@ Done so far:
 - RULE (learned 2026-11-07): scripted / piped app runs on the REAL DB only with `make run-readonly`
   (or PGOPTIONS='-c default_transaction_read_only=on'). A desynced script once created a portfolio
   there (removed; fingerprint restored; the user reseeded the real DB later that day).
-Next: App 6 (market data: price history + refresh; admin: stocks)
+  App 6 (DONE): market_menu: top movers, list stocks (sector filter), price history (Enter = last 30
+  price days). menus/admin_menu.py (Main 3): add stock (app/market_data.fetch_history downloads +
+  cleans with the loader code, raises DownloadError; THEN da.add_stock_with_prices = ONE transaction
+  incl. a new sector/exchange typed at the prompt), edit, rename ticker (stock_usage counts, ON UPDATE
+  CASCADE, audit rows keep old ticker), delete (RESTRICT decides), refresh all prices
+  (da.refresh_all_prices -> etl.load_prices.refresh_tickers over ALL stock rows, download injectable),
+  list sectors/exchanges. DECIDED: app never writes data/tickers.csv. Tests: unittest.mock for every
+  download + autouse conftest.no_network (yfinance.Ticker raises). NEVER add/refresh on the real DB.
+Next: extras (charts PNG, CSV trade import, rebalance) or the final step (friendly unexpected-error
+message + log file), then report / dump
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 
