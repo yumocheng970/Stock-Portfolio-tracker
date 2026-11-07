@@ -1,6 +1,8 @@
 # Paper-Trading Portfolio Tracker - common commands (run from the repo root).
 # Python commands need the conda env:  conda activate spt
 #
+#   make run            start the CLI app on portfolio_tracker (real data)
+#   make run-test-db    start the CLI app on portfolio_tracker_test (emptied by make test)
 #   make test           rebuild the TEST database, run SQL tests + pytest
 #   make apply-db       add/replace views, functions, triggers, analysis, indexes
 #                       in portfolio_tracker (db/apply.sql; no data is touched)
@@ -25,9 +27,16 @@ PYTHON  ?= python
 PSQL     = psql -X -q -v ON_ERROR_STOP=1
 
 .PHONY: test test-db test-sql test-py apply-db load-prices check-prices seed reseed check-sample-data \
-        dump verify-dump
+        dump verify-dump run run-test-db
 
 test: test-sql test-py
+
+# The CLI app (python -m app). DB_NAME in the environment wins over .env.
+run:
+	$(PYTHON) -m app
+
+run-test-db:
+	DB_NAME=$(TEST_DB) $(PYTHON) -m app
 
 # Create the test DB if it doesn't exist, then rebuild it with reset.sql
 test-db:

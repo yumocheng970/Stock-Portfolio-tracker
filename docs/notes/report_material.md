@@ -41,6 +41,14 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **The restore is verified, not assumed.** `make verify-dump` restores into a new empty database. It diffs an inventory against the real DB: row counts, every table/view/routine/trigger/index/constraint, the identity sequences, and an md5 of the views' and analysis functions' output (37 lines, identical). It also runs behaviour checks (an overdraw, an oversell, trading an INDEX, an UPDATE of a cash transaction, a TRUNCATE, an over-withdrawal: all rejected with their `trg_` names; a valid trade gets a new id and is audited) and compares the sample-data fingerprint. Then it drops the temporary database.
 - pg_dump creates triggers and foreign keys **after** loading the data, so the restore's COPY doesn't fire the balance triggers (and doesn't have to satisfy them row by row).
 
+### Python CLI app (Task 4), App 1: foundation
+- **Layering: all SQL in one module (`app/data_access.py`).** Menus only call its functions, and a test fails if a menu file contains `SELECT/INSERT/UPDATE/DELETE/CALL`, `.execute(` or `import psycopg`. The UI can change without touching SQL, and every query is in one reviewable place.
+- **Business rules only in the database; the app checks only the input's shape** (not empty, a number, max length). Email format, uniqueness, enough cash, date order and so on are decided by constraints and triggers. The app shows the database's answer, so no rule exists twice and the two can't disagree. Direct SQL (DBeaver) gets the same protection as the app.
+- **Errors mapped by name, with coverage enforced by a catalog test.** `errors.MESSAGES` has a friendly sentence for all 61 names a database error can carry: 47 constraints, the unique index `uq_investor_email_lower`, and 13 names raised by triggers and procedures, found with a regexp over `pg_proc.prosrc`. The test reads the catalog in both directions: a new constraint without a message fails, and so does a stale or misspelled key. Trigger messages add the database's DETAIL (e.g. "Cash would be -50.00 on …"). Unnamed errors fall back to SQLSTATE (23502 NOT NULL reports the column name).
+- **One transaction per user action** (`with conn.transaction():` on an autocommit connection). A refused action is rolled back, a friendly message is shown and the user is back at the menu, with no traceback. **Tests** wrap each test in `conn.transaction(force_rollback=True)`, so the data-access transactions become savepoints and the test DB is never changed. The fixture refuses any database except `portfolio_tracker_test`.
+- **Typed confirmation for deletes:** the user types the investor's email, not "y". Before that, the app shows what the cascade will delete (portfolios, trades, cash transactions, watchlists).
+- **tabulate for tables** (one function call, easy to explain) rather than rich (a large framework). All printing goes through `app/display.py`, so it is one file to change. Numbers are right-aligned via `colalign`, with `disable_numparse` so "100.50" isn't shown as "100.5".
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -53,11 +61,14 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - Reproducible sample data depends on the Faker version (40.40.0) and on the price data up to the fixed `SIM_END` (2026-10-30).
 - `make apply-db` uses `CREATE OR REPLACE`, which can't change a function's return columns. That change needs a manual `DROP FUNCTION` first.
 - The dump drops pg_dump's `\restrict` protection, a 2025 fix that stops psql from running meta-commands injected through malicious object names. That is acceptable because every name and value in this database was created by us. DBeaver itself could not be tested here (Windows GUI). The non-psql restore is tested through psycopg instead. A GUI runs the statements one by one, so a failed run can leave a half-restored database (restore into a new empty one again).
+- The CLI app has no login or password: "choose investor" acts as the login (a stated simplification).
+- Identity sequences aren't rolled back with a transaction, so the rolled-back tests use up ids (e.g. the next investor in the test DB is 35, not 1). This is harmless: ids are only unique, not consecutive.
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.
 - Monthly returns: Modified Dietz is an approximation of the time-weighted return (it assumes the portfolio grows evenly within the month). A month with a zero denominator (everything withdrawn) gets a NULL return, which the cumulative return treats as 0 %. The current month shows 0 % until prices are refreshed. Excess is rounded from the exact difference (it may differ by 0.01 from the difference of rounded values).
 
 ## Future work
 
+- **Friendly handling of unexpected Python errors** (planned as the last step before submission): today a bug (not a database error) still shows a traceback, so bugs stay visible during development. The plan is a short "unexpected error" message plus a log file.
 - **C++ analytics extension (`analytics_cpp/`)**: an optional extension from the proposal. It will be built only after the Python CLI app works. If it isn't built, it goes here as future work.
 
 ## Technical expertise gained

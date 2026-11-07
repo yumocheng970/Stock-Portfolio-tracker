@@ -64,7 +64,7 @@ Then the details.
   and again WITHOUT psql via db/tests/restore_without_psql.py, compares both, drops the temp DB)
 
 ## Stack
-PostgreSQL, Python 3 + psycopg (CLI numbered menus), yfinance (auto_adjust=False, insert-only refresh), Faker for names/emails
+PostgreSQL, Python 3 + psycopg (CLI numbered menus), tabulate (terminal tables), yfinance (auto_adjust=False, insert-only refresh), Faker for names/emails
 
 ## Schema (11 tables)
 investor, portfolio, cash_transaction, trade, stock, sector, exchange,
@@ -137,7 +137,21 @@ Done so far:
   fn_holding_pl(portfolio, as_of) [Q4, trades up to as_of via fn_position_history],
   fn_watchlist_targets_reached(investor, as_of) [Q5]. NULL date = today (CURRENT_DATE, DECIDED:
   agrees with v_cash_balance); closes = latest close <= that date (per ticker, uses the PK).
-Next: the Python CLI app
+- Python CLI app (Task 4), design in docs/app_design.md (CRUD matrix, menu tree, roadmap).
+  Run: `make run` (real DB) / `make run-test-db` (DB_NAME env overrides .env). Layers under app/:
+  data_access.py = ALL SQL (each function in `with conn.transaction():`, dict rows, NotFoundError);
+  errors.py = MESSAGES for EVERY constraint/index/trg_/exec_ name (catalog test enforces it) +
+  SQLSTATE fallbacks, safe_call() -> (ok, result) prints friendly message; inputs.py (re-ask,
+  confirm_typed); menu.py run_menu(title, [(label, fn)], session) (fn may return "back");
+  display.py print_table (tabulate); session.py Session dataclass; menus/ = NO SQL (test greps it).
+  Rules stay in the DB; the app checks only input shape. Deletes: typed confirmation (email/name).
+  Python bugs still show a traceback until the final step. tests/conftest.py `conn` fixture: test DB
+  only, force_rollback transaction (data_access transactions become savepoints).
+  Roadmap: App 1 foundation+investor (DONE) | App 2 portfolio (cash, trades, holdings) |
+  App 3 trade history/audit/restore | App 4 watchlists | App 5 reports (queries 1-5) |
+  App 6 market data/admin | extras: PNG charts, CSV trade import (all-or-nothing), rebalance |
+  final step before submission: friendly "unexpected error" message + log file instead of tracebacks.
+Next: App 2 (portfolio)
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

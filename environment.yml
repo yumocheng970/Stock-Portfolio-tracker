@@ -36,6 +36,7 @@ dependencies:
   - cmake
   - pandas
   - psycopg
+  - tabulate
   - pip
   - pip:
       - kaggle>=2.2
