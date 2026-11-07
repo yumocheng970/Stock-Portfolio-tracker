@@ -59,32 +59,24 @@ reseed:
 check-sample-data:
 	$(PSQL) -d $(REAL_DB) -f db/tests/check_sample_data.sql
 
-# Final deliverable (Task 2). Plain SQL, restorable with psql anywhere:
+# Final deliverable (Task 2). Plain SQL that ANY client can run (psql, DBeaver, pgAdmin):
 #   --no-owner       no ALTER ... OWNER TO ethan (objects belong to whoever restores)
 #   --no-privileges  no GRANT/REVOKE naming roles of this machine
+#   --column-inserts --rows-per-insert=1000
+#                    data as INSERT INTO t (col, ...) VALUES (...), (...) ... with up to
+#                    1000 rows each, instead of psql-only COPY ... FROM stdin
+#   sed              deletes the \restrict / \unrestrict lines pg_dump 16.10+ adds
+#                    (psql meta-commands: other clients and older psql reject them)
+#   grep             fails if any line still starts with a backslash
 dump:
-	pg_dump --no-owner --no-privileges --format=plain -d $(REAL_DB) -f $(DUMP_FILE)
+	pg_dump --no-owner --no-privileges --column-inserts --rows-per-insert=1000 \
+	        -d $(REAL_DB) -f $(DUMP_FILE)
+	sed -i -E '/^\\(un)?restrict /d' $(DUMP_FILE)
+	@! grep -n '^\\' $(DUMP_FILE) || { echo "psql meta-command left in $(DUMP_FILE)"; exit 1; }
 	@ls -l $(DUMP_FILE)
 
-# Restore the dump into a fresh empty database and prove it equals REAL_DB.
-# The temporary database is dropped at the end, also when a check fails.
+# Restore the dump into a fresh temporary database twice (with psql, and without
+# psql through Python), compare with REAL_DB, run behaviour checks, drop it.
+# Needs the conda env (spt) for the Python restore.
 verify-dump:
-	dropdb --if-exists $(RESTORE_DB)
-	createdb $(RESTORE_DB)
-	@set -e; tmp=$$(mktemp -d); trap 'dropdb --if-exists $(RESTORE_DB); rm -rf "$$tmp"' EXIT; \
-	$(PSQL) --single-transaction -d $(RESTORE_DB) -f $(DUMP_FILE) > /dev/null; \
-	echo "== compare inventory: $(REAL_DB) vs $(RESTORE_DB)"; \
-	$(PSQL) -At -d $(REAL_DB)    -f db/tests/dump_compare.sql > $$tmp/real.txt; \
-	$(PSQL) -At -d $(RESTORE_DB) -f db/tests/dump_compare.sql > $$tmp/restored.txt; \
-	diff $$tmp/real.txt $$tmp/restored.txt; \
-	echo "identical: $$(wc -l < $$tmp/real.txt) lines"; \
-	grep '^rows ' $$tmp/restored.txt; \
-	echo "== behaviour checks"; \
-	$(PSQL) -d $(RESTORE_DB) -f db/tests/check_restore.sql; \
-	echo "== sample-data fingerprint"; \
-	$(PSQL) -At -d $(REAL_DB)    -f db/tests/check_sample_data.sql > $$tmp/fp_real.txt; \
-	$(PSQL) -At -d $(RESTORE_DB) -f db/tests/check_sample_data.sql > $$tmp/fp_restored.txt; \
-	a=$$(tail -1 $$tmp/fp_real.txt); b=$$(tail -1 $$tmp/fp_restored.txt); \
-	echo "$(REAL_DB): $$a"; echo "$(RESTORE_DB): $$b"; \
-	test "$$a" = "$$b"; \
-	echo "verify-dump: ALL OK ($(RESTORE_DB) dropped)"
+	PYTHON=$(PYTHON) bash db/tests/verify_dump.sh $(REAL_DB) $(RESTORE_DB) $(DUMP_FILE)
