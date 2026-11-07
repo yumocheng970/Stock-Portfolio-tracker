@@ -733,3 +733,44 @@ def import_events(conn, portfolio_id, events):
             except psycopg.Error as error:
                 raise ImportRowError(event.row, error) from error
     return counts
+
+
+# ---------------------------------------------------------------------
+# Rebalance (Extra 3): prices for the plan, then all trades in ONE transaction
+# ---------------------------------------------------------------------
+class RebalanceTradeError(Exception):
+    """The database refused one trade of a rebalance. Carries the trade as text
+    ("SELL 50 AAA") and the original database error."""
+    def __init__(self, trade_text, error):
+        super().__init__(f"{trade_text}: {error}")
+        self.trade_text = trade_text
+        self.error = error
+
+
+def latest_closes(conn, tickers, as_of):
+    """{ticker: latest close on or before as_of} (the reports' valuation rule).
+    Tickers without any price are simply missing from the dict."""
+    rows = _fetch_all(conn, """
+        SELECT t.ticker, c.close
+        FROM unnest(%s::text[]) AS t(ticker)
+        CROSS JOIN LATERAL (
+            SELECT dp.close FROM daily_price dp
+            WHERE dp.ticker = t.ticker AND dp.price_date <= %s
+            ORDER BY dp.price_date DESC
+            LIMIT 1
+        ) c
+    """, (list(tickers), as_of))
+    return {row["ticker"]: row["close"] for row in rows}
+
+
+def execute_rebalance(conn, portfolio_id, trades, day):
+    """Make the plan's trades [(ticker, "SELL"/"BUY", shares)] in the given order
+    (SELLs first) on `day` at that day's close, in ONE transaction: the first
+    refusal raises RebalanceTradeError inside the block, so nothing is saved."""
+    with conn.transaction():
+        for ticker, trade_type, shares in trades:
+            try:
+                execute_trade(conn, portfolio_id, ticker, trade_type, shares, day, None)
+            except psycopg.Error as error:
+                raise RebalanceTradeError(f"{trade_type} {shares} {ticker}", error) from error
+    return len(trades)

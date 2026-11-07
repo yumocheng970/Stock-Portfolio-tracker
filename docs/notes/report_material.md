@@ -116,6 +116,21 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **Read-only mode** refuses the import up front with a friendly message (the database would refuse anyway).
 - Two sample files in `data/samples/` (one valid, one failing on row 6) for the demo video, both tested.
 
+### Extra 3: rebalance to target %
+- **A pure calculation** (`app/rebalance.py`: no database, no input), tested with exact numbers. The database only provides the inputs (cash, holdings, latest closes) and carries out the trades.
+- **Rounding that provably keeps cash ≥ 0:** SELL n = ⌈current − target shares⌉ (round up), BUY n = ⌊target shares − current⌋ (round down).
+  - So every targeted ticker ends at or below its target value.
+  - Trades at the valuation price conserve the total value V.
+  - Therefore cash after ≥ V·(1 − Σ targets) − kept ≥ 0 whenever targets + kept ≤ 100 % (checked first).
+  - Verified on 1,000 seeded random portfolios. A worked example by hand is in `docs/notes/extra_3_rebalance.md`.
+- **Decisions (mine, approved):**
+  - targets per ticker (exact, easy to explain)
+  - held tickers not in the targets are kept (a short list never sells everything else silently; `KO 0` sells)
+  - no minimum-trade threshold (skipping a small SELL could break the cash guarantee); the whole-share drift is shown instead
+- **SELLs are inserted before BUYs.** Same-day trades replay by trade_id, so the sale cash exists when the BUYs are checked. A test shows the BUY-first order is refused by `trg_cash_never_negative`.
+- **All or nothing:** all trades in one transaction, and a refusal ("BUY 250 LATE: No price for LATE on …", or an index target) rolls back the earlier trades too.
+- In read-only mode the preview works (it only reads), and the trades are refused at the confirm step.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -135,6 +150,7 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - Old trade_audit rows keep the ticker they had. Restoring a trade that was deleted *before* a ticker rename fails with the friendly FK message (no price for the old ticker).
 - "Add a stock" and "Refresh all prices" need the network (Yahoo Finance). Failures are shown per ticker, and nothing partial is saved for an add.
 - CSV import: the Windows-path conversion assumes WSL's default mount root `/mnt`; files must be comma-separated (Excel in some locales saves `;`); at most 1,000 rows per file.
+- Rebalancing uses whole shares, so each target is met only to within one share's value (shown as drift). Expensive shares in a small portfolio drift more.
 - The CLI app has no login or password: "choose investor" acts as the login (a stated simplification).
 - Identity sequences aren't rolled back with a transaction, so the rolled-back tests use up ids (e.g. the next investor in the test DB is 35, not 1). This is harmless: ids are only unique, not consecutive.
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.

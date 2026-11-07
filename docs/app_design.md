@@ -71,6 +71,9 @@ Market data (Main → 2): 1 Top movers, 2 List stocks (optional sector filter), 
 2 Edit a stock, 3 Rename a ticker, 4 Delete a stock, 5 Refresh all prices, 6 List sectors,
 7 List exchanges. ^GSPC can't be deleted or renamed (trigger).
 
+Rebalance (Extra 3): Portfolio home → 9 (Rename → 10, Delete → 11). Targets per ticker on one line;
+held tickers left out are kept; preview, confirm, all trades in one transaction (SELLs first).
+
 Import from CSV (Extra 2): Portfolio home → 8. Columns `date,type,ticker,shares,price,amount`;
 all rows are checked first (all errors listed), then a preview, then one transaction (all or nothing).
 Portfolio home is now 1 Summary, 2 Buy, 3 Sell, 4 Trade history, 5 Reports, 6 Deposit cash,
@@ -103,5 +106,5 @@ can't be before the portfolio's latest event, so "today" would block trading unt
 | **App 4** (done) | Watchlists and items, targets reached (query 5) |
 | **App 5** (done) | Reports: monthly return vs S&P 500 (query 1), sector allocation (2), top movers (3), P/L per holding (4) |
 | **App 6** (done) | Market data (price history, refresh prices) and Admin (add a stock + download its prices, edit, delete) |
-| Extras | **PNG charts (done: portfolio vs S&P 500, sector allocation, top movers; + CSV of the data)**; **CSV trade import (done: shape check of all rows, preview, one transaction, "Row N: …")**; rebalance to target % |
+| Extras | **PNG charts (done: portfolio vs S&P 500, sector allocation, top movers; + CSV of the data)**; **CSV trade import (done: shape check of all rows, preview, one transaction, "Row N: …")**; **rebalance to target % (done: per ticker, whole shares, SELL up / BUY down, one transaction)** |
 | **Final step, before submission** | Replace raw tracebacks with a friendly "unexpected error" message + a log file. Until then, a Python bug (not a database error) still shows its traceback, so bugs stay visible during development. |

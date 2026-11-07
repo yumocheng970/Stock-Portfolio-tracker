@@ -212,8 +212,13 @@ Done so far:
   refused up front. Samples: data/samples/import_valid.csv, import_fails_row_6.csv (+ README).
   Portfolio home is now: 1 Summary 2 Buy 3 Sell 4 Trade history 5 Reports 6 Deposit 7 Withdraw
   8 Import from CSV 9 Rename 10 Delete.
-Next: Extra 3 (rebalance to target %) or the final step (friendly unexpected-error message + log
-file), then report / dump
+  Extra 3 (DONE): Portfolio home 9 "Rebalance" (Rename 10, Delete 11). app/rebalance.py (pure):
+  parse_targets("AAPL 30, KO=10") -> (targets, errors); plan_rebalance(cash, holdings, prices, targets)
+  -> Plan: SELL n = ceil, BUY n = floor (proof: cash_after >= V(1 - targets) - kept >= 0), held
+  tickers not in targets KEPT (0 sells all), no minimum-trade threshold, trades SELLs first.
+  da.latest_closes (latest close <= date), da.execute_rebalance = ONE transaction, refusal ->
+  RebalanceTradeError("BUY 60 BBB", error). Read-only: preview allowed, refused at confirm.
+Next: the final step (friendly "unexpected error" message + log file), then report / dump
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

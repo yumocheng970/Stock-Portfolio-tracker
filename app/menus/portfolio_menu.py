@@ -11,7 +11,7 @@ from decimal import Decimal
 from app import data_access as da
 from app.display import format_value, print_table
 from app.errors import safe_call
-from app import csv_import
+from app import csv_import, rebalance
 from app.inputs import ask_decimal, ask_int, ask_text, ask_yes_no, confirm_typed, pause
 from app.menu import run_menu
 from app.menus.common import ask_event_date, ask_ticker
@@ -101,6 +101,7 @@ def portfolio_home(session):
         ("Deposit cash",     lambda s: cash(s, "DEPOSIT")),
         ("Withdraw cash",    lambda s: cash(s, "WITHDRAWAL")),
         ("Import from CSV",  import_csv),
+        ("Rebalance",        rebalance_portfolio),
         ("Rename portfolio", rename),
         ("Delete portfolio", delete),
     ], session)
@@ -235,6 +236,94 @@ def import_csv(session):
         show_cash_now(session)
     else:
         print("  Nothing was saved (the whole import was rolled back).")
+    pause()
+
+
+REBALANCE_COLUMNS = [
+    ("ticker", "Ticker"), ("price", "Price"), ("shares", "Shares now"), ("pct", "% now"),
+    ("target_text", "Target"), ("trade_text", "Trade"), ("shares_after", "Shares after"),
+    ("pct_after", "% after"), ("drift", "Drift"),
+]
+
+
+def trade_text(trade):
+    """+5 -> "BUY 5", -3 -> "SELL 3", 0 -> "-"."""
+    if trade > 0:
+        return f"BUY {trade}"
+    if trade < 0:
+        return f"SELL {-trade}"
+    return "-"
+
+
+def rebalance_portfolio(session):
+    """Rebalance to target % per ticker: compute whole-share trades (app/rebalance.py),
+    preview, confirm, then all trades in ONE transaction (SELLs first)."""
+    print("\nRebalance to target percentages of the portfolio's total value.")
+    print("  Held tickers you leave out are kept as they are; a target of 0 sells all.")
+    print("  The rest is the cash target. Trades are whole shares at the chosen day's close.")
+    day = ask_event_date(session, "Date (valuation and trades)", session.portfolio_id)
+
+    ok, cash_row = safe_call(da.cash_summary, session.conn, session.portfolio_id)
+    ok2, holdings_rows = safe_call(da.open_holdings, session.conn, session.portfolio_id)
+    if not (ok and ok2):
+        pause()
+        return
+    holdings = {row["ticker"]: row["shares_held"] for row in holdings_rows}
+    print(f"  Now: cash {format_value(cash_row['cash_balance'])}, holdings: "
+          + (", ".join(f"{t} {n}" for t, n in holdings.items()) or "none"))
+
+    while True:
+        text = ask_text("Targets, e.g. AAPL 30, MSFT 20, KO 10 (Enter = cancel)", 500, required=False)
+        if text is None:
+            return
+        targets, errors = rebalance.parse_targets(text)
+        if not errors:
+            break
+        for error in errors:
+            print(f"  {error}")
+
+    ok, prices = safe_call(da.latest_closes, session.conn, set(holdings) | set(targets), day)
+    if not ok:
+        pause()
+        return
+    try:
+        plan = rebalance.plan_rebalance(cash_row["cash_balance"], holdings, prices, targets)
+    except rebalance.RebalanceError as error:
+        print(f"\n  !! {error}")
+        pause()
+        return
+
+    shown = [{**line._asdict(),
+              "target_text": "keep" if line.target_pct is None else f"{line.target_pct:.2f} %",
+              "trade_text": trade_text(line.trade)} for line in plan.lines]
+    print(f"\nPlan on {day} (total value {format_value(plan.total_value)})")
+    print_table(shown, REBALANCE_COLUMNS, percent=("pct", "pct_after", "drift"), signed=False)
+    print(f"  Cash: {format_value(plan.cash_before)} ({plan.cash_pct:.2f} %) -> "
+          f"{format_value(plan.cash_after)} ({plan.cash_pct_after:.2f} %), "
+          f"target {plan.cash_target_pct:.2f} %. Whole shares leave a small drift; "
+          f"cash can't go below zero.")
+    if not plan.trades:
+        print("  No trades needed: the portfolio already matches the targets (to the whole share).")
+        pause()
+        return
+    print("  Trades, in this order (sales first): "
+          + ", ".join(f"{kind} {n} {t}" for t, kind, n in plan.trades))
+
+    if not ask_yes_no(f"Make these {len(plan.trades)} trades on {day}?"):
+        print("  Nothing was traded.")
+        pause()
+        return
+    ok, read_only = safe_call(da.is_read_only, session.conn)
+    if ok and read_only:
+        print("  Rebalancing is not possible in read-only mode: nothing was changed.")
+        pause()
+        return
+    ok, count = safe_call(da.execute_rebalance, session.conn, session.portfolio_id, plan.trades, day)
+    if ok:
+        print(f"\n  Done: {count} trades.")
+        show_cash_now(session)
+    else:
+        print("  Nothing was saved (all trades were rolled back).")
     pause()
 
 
