@@ -1,10 +1,11 @@
+# pip alternative to environment.yml (Python 3.12):
+#   python -m venv .venv  ->  activate it  ->  pip install -r requirements.txt
+# Tested versions are the minimums; Faker is exact (reproducible sample data).
 psycopg[binary]>=3.3
 pandas>=3.0
-Faker>=40.0
 python-dotenv>=1.2
 tabulate>=0.10
 matplotlib>=3.9
-pybind11>=3.1
-kaggle>=2.2
+Faker==40.40.0
 yfinance>=1.7
 pytest>=9.0

@@ -243,3 +243,5 @@ Thumbs.db
 charts/
 # App log (python -m app; unexpected errors with their error id)
 logs/
+# Task 4 package (make package)
+cheng_project.zip

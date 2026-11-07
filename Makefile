@@ -13,6 +13,7 @@
 #   make reseed         delete ALL users + audit rows, reset ids, seed again
 #   make check-sample-data  read-only checks on the sample data
 #   make dump           write db/dump/cheng_final_project.sql from portfolio_tracker
+#   make package       build cheng_project.zip (committed files, without analytics_cpp/)
 #   make verify-dump    restore the dump into a NEW temporary database, compare it
 #                       with portfolio_tracker, run behaviour checks, drop it again
 #
@@ -29,7 +30,7 @@ PYTHON  ?= python
 PSQL     = psql -X -q -v ON_ERROR_STOP=1 -P pager=off
 
 .PHONY: test test-db test-sql test-py apply-db load-prices check-prices seed reseed check-sample-data \
-        dump verify-dump run run-test-db run-readonly
+        dump verify-dump run run-test-db run-readonly package
 
 test: test-sql test-py
 
@@ -96,3 +97,13 @@ dump:
 # Needs the conda env (spt) for the Python restore.
 verify-dump:
 	PYTHON=$(PYTHON) bash db/tests/verify_dump.sh $(REAL_DB) $(RESTORE_DB) $(DUMP_FILE)
+
+# Task 4 package: every COMMITTED file (git archive), so .env, logs/, charts/,
+# __pycache__ (all git-ignored) can't get in, and .git is never part of an archive.
+# analytics_cpp/ (an unbuilt placeholder) is left out. Commit first: uncommitted
+# changes are NOT in the zip (a warning says so).
+package:
+	@git diff --quiet HEAD || echo "WARNING: uncommitted changes are not in the zip (commit first)"
+	git archive --format=zip --prefix=cheng_project/ -o cheng_project.zip HEAD -- . ':(exclude)analytics_cpp'
+	@unzip -l cheng_project.zip | tail -1
+	@ls -l cheng_project.zip
