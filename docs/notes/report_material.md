@@ -34,6 +34,11 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **Default date = today (`CURRENT_DATE`), not the latest price date.** Prices load only up to yesterday, so "latest price date" would leave today's cash transactions out of query 2 while `v_cash_balance` already counts them. With today, the analysis functions and the views always agree, and the closes are unchanged ("latest close on or before today" is still the latest price loaded). Found during testing (Bal Dates: 9,701 vs 9,702); decided by me.
 - **`db/apply.sql` split from `db/reset.sql`:** objects without data (views, functions, triggers, analysis, indexes) are idempotent and listed once. `reset.sql` includes the list after creating the tables; `make apply-db` applies it to the real DB in one transaction without touching data (the fingerprint was unchanged).
 
+### Deliverable: the database dump (Task 2)
+- **`pg_dump --no-owner --no-privileges`, plain SQL.** Without these flags the file would contain `ALTER … OWNER TO ethan` and GRANTs, which fail on a computer without that role. Now every object belongs to whoever restores it (the file contains 0 OWNER/GRANT/REVOKE lines). The file is 2.0 MB (0.68 MB gzipped).
+- **The restore is verified, not assumed.** `make verify-dump` restores into a new empty database. It diffs an inventory against the real DB: row counts, every table/view/routine/trigger/index/constraint, the identity sequences, and an md5 of the views' and analysis functions' output (37 lines, identical). It also runs behaviour checks (an overdraw, an oversell, trading an INDEX, an UPDATE of a cash transaction, a TRUNCATE, an over-withdrawal: all rejected with their `trg_` names; a valid trade gets a new id and is audited) and compares the sample-data fingerprint. Then it drops the temporary database.
+- pg_dump creates triggers and foreign keys **after** loading the data, so the restore's COPY doesn't fire the balance triggers (and doesn't have to satisfy them row by row).
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -45,8 +50,13 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - The balance replay runs once per changed row, so a multi-row statement (e.g. a ticker rename over many trades) replays the same portfolio several times.
 - Reproducible sample data depends on the Faker version (40.40.0) and on the price data up to the fixed `SIM_END` (2026-10-30).
 - `make apply-db` uses `CREATE OR REPLACE`, which can't change a function's return columns. That change needs a manual `DROP FUNCTION` first.
+- The dump needs a recent `psql` to restore (16.10+, or 13.22/14.19/15.14/17.6+): pg_dump 16.15 writes `\restrict` security lines that older psql versions don't know. It also uses `COPY … FROM stdin`, so it must be run with psql, not pasted into a GUI query window (DBeaver/pgAdmin).
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.
 - Monthly returns: Modified Dietz is an approximation of the time-weighted return (it assumes the portfolio grows evenly within the month). A month with a zero denominator (everything withdrawn) gets a NULL return, which the cumulative return treats as 0 %. The current month shows 0 % until prices are refreshed. Excess is rounded from the exact difference (it may differ by 0.01 from the difference of rounded values).
+
+## Future work
+
+- **C++ analytics extension (`analytics_cpp/`)**: an optional extension from the proposal. It will be built only after the Python CLI app works. If it isn't built, it goes here as future work.
 
 ## Technical expertise gained
 

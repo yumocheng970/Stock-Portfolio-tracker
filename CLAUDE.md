@@ -38,7 +38,8 @@ Then the details.
 - WSL (Ubuntu) on Windows 11; Linux user `ethan`; project conda env is `spt` (`conda activate spt`;
   Python 3.12, psycopg 3, pandas, python-dotenv, yfinance, pytest). Not `base`.
 - Repo: ~/projects/5200/Stock-Portfolio-tracker (app/, db/, etl/, data/, docs/, tests/)
-- analytics_cpp/ is out of scope (C++ dropped from proposal); ignore it
+- analytics_cpp/ is an OPTIONAL EXTENSION from the proposal (not out of scope). Build it only after
+  the Python CLI app works; if it isn't built, it goes in the final report's "Future work" section
 - PostgreSQL 16 in WSL, role `ethan`. Two databases:
   - `portfolio_tracker`: REAL data (loaded prices). Never run tests here.
   - `portfolio_tracker_test`: tests only, rebuilt from scratch by every `make test`.
@@ -56,7 +57,9 @@ Then the details.
   `python -m etl.seed_sample_data [--replace]` (or `make seed` / `make reseed`)
 - Never write the DB password in code or commit it; read it from a git-ignored .env file
 - DBeaver (Windows) connects via localhost:5432
-- Final deliverable: `cheng_final_project.sql` (pg_dump: DDL, data, functions, procedures, triggers)
+- Final deliverable: `db/dump/cheng_final_project.sql` (pg_dump --no-owner --no-privileges, plain SQL:
+  DDL, data, functions, procedures, triggers, views, indexes). Regenerate right before submission:
+  `make dump && make verify-dump` (verify restores it into a temporary DB, compares, drops it)
 
 ## Stack
 PostgreSQL, Python 3 + psycopg (CLI numbered menus), yfinance (auto_adjust=False, insert-only refresh), Faker for names/emails
