@@ -54,7 +54,33 @@ def ask_event_date(session, prompt, portfolio_id=None):
     allowed date if that is later (see da.default_event_date)."""
     show_price_range(session)
     ok, default = safe_call(da.default_event_date, session.conn, portfolio_id)
-    return ask_date(prompt, default=default if ok else None)
+    if not ok:
+        return ask_date(prompt, no_default_reason="the default date could not be looked up")
+    return ask_date(prompt, default=default, no_default_reason="no prices are loaded yet")
+
+
+def ask_ticker(session):
+    """Ask for a ticker and show what we know about it. An unknown ticker or an
+    index is asked again right away (a hint: the database still decides).
+    Returns the ticker in capitals, or None if the user pressed Enter (cancel)."""
+    while True:
+        ticker = ask_text("Ticker (Enter = cancel)", TICKER_MAX, required=False)
+        if ticker is None:
+            return None
+        ticker = ticker.upper()
+        ok, info = safe_call(da.ticker_context, session.conn, session.portfolio_id, ticker)
+        if not ok:
+            return ticker                 # no hint available; let the database decide
+        if info["company_name"] is None:
+            print(f"  {ticker} is not in the stock list. Type another ticker, or Enter to cancel.")
+            continue
+        if info["security_type"] == "INDEX":
+            print(f"  {ticker} is an index: it can be watched but not traded. "
+                  "Type another ticker, or Enter to cancel.")
+            continue
+        print(f"  {ticker}: {info['company_name']}, you hold {info['shares_held']} shares, "
+              f"latest price {info['last_price_date']}")
+        return ticker
 
 
 # ---------------------------------------------------------------------
@@ -158,16 +184,10 @@ def trade(session, trade_type):
     print(f"\n{verb}")
     show_context(session)
 
-    ticker = ask_text("Ticker", TICKER_MAX).upper()
-    ok, info = safe_call(da.ticker_context, session.conn, session.portfolio_id, ticker)
-    if ok:
-        if info["company_name"] is None:
-            print(f"  ({info['ticker']} is not in the stock list.)")
-        else:
-            print(f"  {info['ticker']}: {info['company_name']} ({info['security_type']}), "
-                  f"you hold {info['shares_held']} shares, "
-                  f"latest price {info['last_price_date']}")
-
+    ticker = ask_ticker(session)
+    if ticker is None:
+        print("  Cancelled.")
+        return
     shares = ask_int("Shares", minimum=1)
     day = ask_event_date(session, "Trade date", session.portfolio_id)
     ok, prices = safe_call(da.price_on, session.conn, ticker, day)

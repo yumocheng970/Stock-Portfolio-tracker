@@ -8,6 +8,7 @@ From the repo root, with the project's conda env:
 conda activate spt
 python -m app                                   # real database (portfolio_tracker), use this for demos
 DB_NAME=portfolio_tracker_test python -m app    # test database (emptied by `make test`)
+make run-readonly                               # real database, READ-ONLY: browse safely, every change is refused
 ```
 Choose a number and press Enter; **exit with 0** from the main menu.
 (`make run` / `make run-test-db` do the same, but Ctrl+C under make prints

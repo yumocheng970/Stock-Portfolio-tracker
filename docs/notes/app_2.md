@@ -138,3 +138,34 @@ A procedure's INOUT parameter comes back as **one result row**, with the paramet
 - `refused(func, *args)` 是辅助函数：期望数据库报错，返回友好提示。
 - 覆盖的内容见上方英文列表：重名、按收盘价买入并与视图核对、价格超出范围、透支、卖超、存取款、日期早于最近事件、提示信息、**默认日期能让新组合正常交易**、改名、删除及级联、输入函数的重新询问。
 - 另外在测试库上手动跑了一遍完整的脚本化操作。
+
+---
+
+## 5. Polish after the first test run / 第一次试用后的改进
+**EN:**
+1. **Enter with no default says why.** `ask_date(..., no_default_reason="no prices are loaded yet")` prints "A date is required: no prices are loaded yet." instead of "Please type a real date".
+2. **Dates without leading zeros.** `parse_date` uses a **regular expression** (`re` module):
+   ```python
+   DATE_PATTERN = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
+   match = DATE_PATTERN.fullmatch("2026-11-6")    # None if it doesn't match
+   year, month, day = (int(part) for part in match.groups())   # ("2026", "11", "6") -> 2026, 11, 6
+   date(year, month, day)                          # ValueError for 2025-2-30
+   ```
+   - `\d{4}` = exactly 4 digits, `\d{1,2}` = 1 or 2 digits, and `( )` = a group we can read back with `groups()`.
+   - `fullmatch` requires the **whole** text to match, so `2026-1-5x` is rejected.
+   - `r"..."` is a raw string: backslashes are kept as they are (needed for `\d`).
+   - `date.fromisoformat` would reject `2026-11-6`, which is why we parse ourselves.
+3. **Unknown ticker is asked again at once.** `ask_ticker(session)` loops until the ticker is in the stock list and is not an INDEX. Enter returns `None`, which means cancel. It is still only a hint: the database checks again in `execute_trade`.
+4. **One line for the no-price error.** `errors.DETAIL_REPLACES_MESSAGE = {"exec_no_price_data", "exec_missing_input"}`. For these names only the DETAIL is shown ("No price for AAPL on 2026-10-03 (not a trading day, or unknown ticker)."), because it already says everything, more precisely. Other trigger errors still show message + DETAIL.
+5. **Extra: read-only mode.** `make run-readonly` starts the app with `PGOPTIONS='-c default_transaction_read_only=on'`. **`PGOPTIONS`** is an environment variable that libpq (the C library under psycopg and psql) sends to the server when connecting: here it makes every transaction read-only. The start screen says "READ-ONLY mode", and any change gives "The database is in read-only mode: nothing was changed." (SQLSTATE 25006). It is safe for demos on real data.
+
+New tests (16): `tests/test_app_polish.py`. **`@pytest.mark.parametrize`** runs one test function once per row of example inputs (3 good dates, 6 bad ones), and each row is reported as its own test.
+
+**中文：**
+1. **没有默认值时直接回车，会说明原因**："A date is required: no prices are loaded yet."，而不是"请输入正确的日期"。
+2. **日期可以不补零**：`parse_date` 用**正则表达式**（`re` 模块）。`\d{4}` 表示 4 位数字，`\d{1,2}` 表示 1 到 2 位，括号是可以用 `groups()` 取回的分组；`fullmatch` 要求**整段**文字都匹配；`r"..."` 是原始字符串，反斜杠保持原样。`date.fromisoformat` 不接受 `2026-11-6`，所以我们自己解析。
+3. **未知股票代码会立刻重新询问**：`ask_ticker` 一直循环，直到代码在股票表里、而且不是指数。直接回车返回 `None` 表示取消。这仍然只是提示，`execute_trade` 时数据库还会再检查。
+4. **"没有价格"的错误只显示一行**：对 `DETAIL_REPLACES_MESSAGE` 里的名字只显示 DETAIL，因为它已经把事情说全了，而且更具体。其他触发器错误仍然显示"提示 + DETAIL"。
+5. **额外：只读模式**。`make run-readonly` 用 `PGOPTIONS` 启动程序。`PGOPTIONS` 是一个环境变量，libpq（psycopg 和 psql 底层的 C 库）在连接时把它发给服务器，这里让每个事务都是只读的。开始界面会显示 READ-ONLY，任何修改都会得到友好提示（SQLSTATE 25006），适合用真实数据做演示。
+
+新测试 16 个，在 `tests/test_app_polish.py`。**`@pytest.mark.parametrize`** 让同一个测试函数对每组示例输入各跑一次（3 个正确日期、6 个错误日期），每组都单独报告结果。

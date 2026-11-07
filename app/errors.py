@@ -101,6 +101,12 @@ MESSAGES = {
     "exec_no_price_data":  "There is no price for that ticker on that date (choose a trading day).",
 }
 
+# For these names the database's DETAIL already says everything the message
+# says, only more precisely ("No price for ZZZZ on 2026-10-30 (not a trading
+# day, or unknown ticker)."), so the DETAIL is shown alone, as one clear line.
+# The MESSAGES text is the fallback when there is no DETAIL.
+DETAIL_REPLACES_MESSAGE = {"exec_no_price_data", "exec_missing_input"}
+
 # Errors without a constraint name, by SQLSTATE (the 5-character error code)
 SQLSTATE_MESSAGES = {
     "23502": "{column} is required.",                                    # not_null_violation
@@ -111,6 +117,7 @@ SQLSTATE_MESSAGES = {
     "22008": "That date doesn't exist.",                                 # datetime_field_overflow
     "40001": "Someone else changed the same data at the same time. Please try again.",  # serialization_failure
     "40P01": "Someone else changed the same data at the same time. Please try again.",  # deadlock_detected
+    "25006": "The database is in read-only mode: nothing was changed.",  # read_only_sql_transaction
 }
 
 
@@ -123,6 +130,8 @@ def friendly_message(error):
 
     diag = error.diag
     name = diag.constraint_name
+    if name in DETAIL_REPLACES_MESSAGE and diag.message_detail:
+        return diag.message_detail
     if name in MESSAGES:
         message = MESSAGES[name]
         # Trigger errors carry useful numbers in DETAIL, e.g.

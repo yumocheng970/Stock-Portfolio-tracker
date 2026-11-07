@@ -3,6 +3,7 @@
 #
 #   make run            start the CLI app on portfolio_tracker (real data)
 #   make run-test-db    start the CLI app on portfolio_tracker_test (emptied by make test)
+#   make run-readonly   start the CLI app on portfolio_tracker, READ-ONLY (safe demos)
 #   make test           rebuild the TEST database, run SQL tests + pytest
 #   make apply-db       add/replace views, functions, triggers, analysis, indexes
 #                       in portfolio_tracker (db/apply.sql; no data is touched)
@@ -27,7 +28,7 @@ PYTHON  ?= python
 PSQL     = psql -X -q -v ON_ERROR_STOP=1
 
 .PHONY: test test-db test-sql test-py apply-db load-prices check-prices seed reseed check-sample-data \
-        dump verify-dump run run-test-db
+        dump verify-dump run run-test-db run-readonly
 
 test: test-sql test-py
 
@@ -37,6 +38,11 @@ run:
 
 run-test-db:
 	DB_NAME=$(TEST_DB) $(PYTHON) -m app
+
+# Every transaction is read-only (server setting via PGOPTIONS): browsing works,
+# any change is refused with a friendly message. Safe for demos on real data.
+run-readonly:
+	PGOPTIONS='-c default_transaction_read_only=on' $(PYTHON) -m app
 
 # Create the test DB if it doesn't exist, then rebuild it with reset.sql
 test-db:

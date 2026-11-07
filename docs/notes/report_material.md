@@ -55,6 +55,13 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - The app now runs `max(price_date)` (for the default and the price range) for each date prompt. On 38k rows that is a ~2 ms Seq Scan, because `idx_daily_price_date` was dropped (no analysis query used it). That is fine for an interactive prompt; the index could come back if the table grows a lot.
 - One menu function serves both Buy and Sell (`lambda s: trade(s, "BUY")`), and another both Deposit and Withdraw: less duplicated code.
 
+- **App 2 polish (from my own test run):**
+  - Dates accept `2026-11-6` (YYYY-M-D, own regex parser instead of `date.fromisoformat`).
+  - Enter with no default says why ("A date is required: no prices are loaded yet").
+  - An unknown ticker, or an index, is asked again at once instead of after shares/date/price. This is still only a hint; the DB decides.
+  - When the database's DETAIL already says everything the message says (`exec_no_price_data`, `exec_missing_input`), only the DETAIL is shown, as one precise line.
+- **Read-only mode for safe demos (`make run-readonly`).** The server setting `default_transaction_read_only=on` (via `PGOPTIONS`) makes every transaction read-only: browsing works, and every change is refused with a friendly message (SQLSTATE 25006). It is enforced by PostgreSQL, not by the app, so no code path can bypass it. *Lesson:* while exploring the real DB with scripted input, the input got out of step and created a test portfolio. I removed it (the fingerprint was unchanged), and since then real-DB exploration only runs in this mode.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.

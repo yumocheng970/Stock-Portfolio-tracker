@@ -158,6 +158,13 @@ Done so far:
   App 3 trade history/audit/restore | App 4 watchlists | App 5 reports (queries 1-5) |
   App 6 market data/admin | extras: PNG charts, CSV trade import (all-or-nothing), rebalance |
   final step before submission: friendly "unexpected error" message + log file instead of tracebacks.
+  App 2 polish: dates accept YYYY-M-D (inputs.parse_date); Enter with no default says why;
+  ask_ticker re-asks unknown tickers and INDEX (Enter = cancel); exec_no_price_data /
+  exec_missing_input show only the DB DETAIL (errors.DETAIL_REPLACES_MESSAGE); `make run-readonly`
+  (PGOPTIONS default_transaction_read_only=on, start screen says READ-ONLY, 25006 friendly).
+- RULE (learned 2026-11-07): scripted / piped app runs on the REAL DB only with `make run-readonly`
+  (or PGOPTIONS='-c default_transaction_read_only=on'). A desynced script once created a portfolio
+  there (removed; fingerprint restored; portfolio id sequence now at 31).
 Next: App 3 (trade history, edit/delete trade, audit log, restore a deleted trade)
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)

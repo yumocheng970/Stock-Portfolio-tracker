@@ -4,8 +4,12 @@ Only the SHAPE of the input is checked here (not empty, a whole number, not
 too long). Business rules (valid email, enough cash, ...) are checked by the
 database, and the menus show its answer via errors.safe_call().
 """
+import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
+
+# Year-month-day; month and day may have 1 or 2 digits: 2026-11-06 or 2026-11-6
+DATE_PATTERN = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
 
 
 def ask_text(prompt, max_len, required=True):
@@ -75,18 +79,34 @@ def ask_decimal(prompt, required=True):
         return amount
 
 
-def ask_date(prompt, default=None):
-    """Ask for a date as YYYY-MM-DD. Enter = `default` (shown in the prompt),
-    if there is one. Whether the date is ALLOWED is decided by the database."""
+def parse_date(text):
+    """'2026-11-6' -> date(2026, 11, 6). Raises ValueError for a wrong format
+    or a day that doesn't exist (2025-02-30)."""
+    match = DATE_PATTERN.fullmatch(text)      # fullmatch: the WHOLE text must match
+    if match is None:
+        raise ValueError(f"not a date: {text!r}")
+    year, month, day = (int(part) for part in match.groups())
+    return date(year, month, day)             # date() itself rejects month 13 / day 30 of Feb
+
+
+def ask_date(prompt, default=None, no_default_reason=None):
+    """Ask for a date as year-month-day (2026-11-06 or 2026-11-6).
+    Enter = `default` (shown in the prompt), if there is one; if there isn't,
+    say why a date is needed (`no_default_reason`, e.g. "no prices are loaded yet").
+    Whether the date is ALLOWED is decided by the database."""
     hint = f" [Enter = {default.isoformat()}]" if default else ""
     while True:
         answer = input(f"{prompt} (YYYY-MM-DD){hint}: ").strip()
-        if answer == "" and default is not None:
-            return default
+        if answer == "":
+            if default is not None:
+                return default
+            reason = f": {no_default_reason}" if no_default_reason else ""
+            print(f"  A date is required{reason}.")
+            continue
         try:
-            return date.fromisoformat(answer)
+            return parse_date(answer)
         except ValueError:                # bad format, or a day like 2025-02-30
-            print("  Please type a real date like 2025-03-14.")
+            print("  Please type a real date as year-month-day, e.g. 2025-03-14 or 2025-3-14.")
 
 
 def confirm_typed(expected, what):

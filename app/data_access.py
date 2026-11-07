@@ -42,6 +42,11 @@ def database_name(conn):
     return _fetch_one(conn, "SELECT current_database() AS name")["name"]
 
 
+def is_read_only(conn):
+    """True when the session's transactions are read-only (make run-readonly)."""
+    return _fetch_one(conn, "SELECT current_setting('default_transaction_read_only') = 'on' AS ro")["ro"]
+
+
 # ---------------------------------------------------------------------
 # investor
 # ---------------------------------------------------------------------

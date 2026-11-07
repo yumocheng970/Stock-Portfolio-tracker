@@ -21,6 +21,8 @@ def main():
     with conn:                      # closes the connection at the end, whatever happens
         print("Paper-Trading Portfolio Tracker")
         print(f"Database: {da.database_name(conn)}")
+        if da.is_read_only(conn):
+            print("READ-ONLY mode: you can browse, every change will be refused.")
         print("Choose a number and press Enter. Exit with 0 from the main menu.")
         try:
             main_menu(Session(conn))
