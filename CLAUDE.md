@@ -218,7 +218,14 @@ Done so far:
   tickers not in targets KEPT (0 sells all), no minimum-trade threshold, trades SELLs first.
   da.latest_closes (latest close <= date), da.execute_rebalance = ONE transaction, refusal ->
   RebalanceTradeError("BUY 60 BBB", error). Read-only: preview allowed, refused at confirm.
-Next: the final step (friendly "unexpected error" message + log file), then report / dump
+  Final step (DONE): app/error_log.py: setup_logging (RotatingFileHandler logs/app.log, 1 MB x 3
+  backups, LOG_DIR looked up at call time), report_unexpected(error, action, conn) -> logs with
+  secrets.token_hex(3) id + exc_info traceback, recover_connection (rollback if not IDLE), APP_DEBUG=1
+  prints the traceback; run_menu catches Exception (re-raises KeyboardInterrupt / EOFError) and shows
+  the menu again. __main__: exit 2 can't connect / 3 database missing (server text; no SQLSTATE) / 4
+  schema missing (da.missing_schema_objects) / 1 unexpected outside menus; sys.exit(main()).
+  Tests: conftest.log_to_tmp_path (autouse, tmp_path_factory) so logs never go into the repo.
+Next: final report material + fresh `make dump && make verify-dump` before submission
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

@@ -15,6 +15,25 @@ Choose a number and press Enter; **exit with 0** from the main menu.
 "make: *** Interrupt". That is make reporting the interrupt, not an app error, so prefer
 `python -m app` for demos and exit with 0.)
 
+### Errors, the log and debug mode
+- A database refusal (not enough cash, duplicate name, ...) is shown as a friendly message; nothing
+  is saved and you are back at the menu.
+- An unexpected error (a bug) shows `Something went wrong. Details were saved to logs/app.log
+  (error 3f9a1c).` and the menu comes back. The log has the time, the error id, the menu action
+  and the full traceback; search it for the id. `logs/` is git-ignored; the file is rotated at 1 MB
+  (3 old files kept: `app.log.1` .. `app.log.3`).
+- Debug mode prints the traceback on screen too: `APP_DEBUG=1 python -m app`
+
+### If the app doesn't start
+| The app says | Exit code | What to do |
+|---|---|---|
+| `Can't connect to PostgreSQL (...)` | 2 | Start the server (WSL: `sudo service postgresql start`); check `DB_HOST` / `DB_PORT` / `DB_USER` in `.env` (template: `.env.example`) |
+| `The database 'X' doesn't exist` | 3 | `createdb X`, then restore the dump (see below) |
+| `The database 'X' has no app tables ... the dump hasn't been restored` | 4 | Restore the dump into it (see below) |
+
+(`echo $?` right after the app ends shows the exit code; 0 = normal exit, 1 = an unexpected error
+outside a menu action, see the log.)
+
 ## Restore the database from the dump
 
 `db/dump/cheng_final_project.sql` is a plain-SQL `pg_dump` (tables, data, views, functions,

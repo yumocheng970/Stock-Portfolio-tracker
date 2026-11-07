@@ -241,3 +241,5 @@ Thumbs.db
 # ---------- App output ----------
 # PNG charts + their CSV data (python -m app -> Reports / Top movers -> Save chart)
 charts/
+# App log (python -m app; unexpected errors with their error id)
+logs/

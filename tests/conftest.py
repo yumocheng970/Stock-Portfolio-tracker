@@ -29,6 +29,19 @@ def conn(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def log_to_tmp_path(tmp_path_factory):
+    """Every test: the app's log file goes to a temporary folder of its own (not the
+    test's tmp_path, which some tests expect to stay empty), never to logs/ in the
+    repo. The handler is closed afterwards."""
+    from app import error_log
+    error_log.setup_logging(tmp_path_factory.mktemp("logs"))
+    yield
+    for handler in list(error_log.logger.handlers):
+        error_log.logger.removeHandler(handler)
+        handler.close()
+
+
+@pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     """Every test: a real yfinance download fails at once. Tests must replace
     the download with a fake (unittest.mock); if one forgets, it fails loudly

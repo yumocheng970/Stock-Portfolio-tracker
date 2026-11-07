@@ -23,6 +23,8 @@ Side modules:
 **Rules**
 - **Rules live only in the database.** The app checks only the *shape* of input (not empty, a number, not too long). Whether an email is valid, cash is enough or a date is allowed is decided by the database. The app shows the database's error as a friendly message. So a rule is never written twice, and the two versions can never disagree.
 - **Every database action is one transaction** (`with conn.transaction():`). On error it is rolled back, the friendly message is shown and the user is back at the menu. No raw traceback for database errors.
+- **Unexpected errors (bugs) are caught in one place, `run_menu`**, which every menu action passes through (`app/error_log.py`). They are logged with a short id and the full traceback to `logs/app.log`, any open transaction is rolled back, and the user sees "Something went wrong … (error 3f9a1c)" and the same menu again. Ctrl+C / Ctrl+D still exit. `APP_DEBUG=1` also prints the traceback.
+- **Startup check:** can't connect → exit 2, database missing → exit 3, schema missing (dump not restored) → exit 4, each with instructions.
 - **Errors are mapped by name.** Every constraint and trigger error has a name (`chk_…`, `fk_…`, `uq_…`, `trg_…`, `exec_…`). `errors.MESSAGES` has a message for every name in the database, and a test reads the catalog, so a new constraint without a message fails the tests.
 - **Deletes need a typed confirmation.** The user types the record's email or name, not "y". Before asking, the app shows what the delete will cascade to.
 
@@ -107,4 +109,4 @@ can't be before the portfolio's latest event, so "today" would block trading unt
 | **App 5** (done) | Reports: monthly return vs S&P 500 (query 1), sector allocation (2), top movers (3), P/L per holding (4) |
 | **App 6** (done) | Market data (price history, refresh prices) and Admin (add a stock + download its prices, edit, delete) |
 | Extras | **PNG charts (done: portfolio vs S&P 500, sector allocation, top movers; + CSV of the data)**; **CSV trade import (done: shape check of all rows, preview, one transaction, "Row N: …")**; **rebalance to target % (done: per ticker, whole shares, SELL up / BUY down, one transaction)** |
-| **Final step, before submission** | Replace raw tracebacks with a friendly "unexpected error" message + a log file. Until then, a Python bug (not a database error) still shows its traceback, so bugs stay visible during development. |
+| **Final step** (done) | Unexpected errors: friendly line with an error id, full traceback in `logs/app.log` (rotated, 1 MB × 4), the menu comes back; `APP_DEBUG=1` also prints the traceback. Startup problems (no server / no database / no schema) get instructions and exit codes 2 / 3 / 4. |

@@ -131,6 +131,16 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **All or nothing:** all trades in one transaction, and a refusal ("BUY 250 LATE: No price for LATE on …", or an index target) rolls back the earlier trades too.
 - In read-only mode the preview works (it only reads), and the trades are refused at the confirm step.
 
+### Final app step: unexpected errors and startup problems
+- **One catch point.** Every menu action passes through `run_menu`, so one `try/except Exception` there covers the whole app. Database refusals are still handled earlier by `safe_call` (friendly messages unchanged). What reaches `run_menu` is a bug.
+  - It is logged with a short **error id** (`secrets.token_hex(3)`), the menu path ("Portfolio: Growth > Rebalance") and the full traceback.
+  - Any open transaction is rolled back (a safety net; normally `with conn.transaction()` already did it).
+  - The user sees "Something went wrong. Details were saved to logs/app.log (error 3f9a1c)." and the same menu again.
+  - `KeyboardInterrupt` / `EOFError` are re-raised so Ctrl+C / Ctrl+D still exit. `EOFError` is a subclass of `Exception` and would otherwise be swallowed.
+- **Log file:** Python's `logging` with a `RotatingFileHandler` (1 MB, 3 backups, about 4 MB at most), in the git-ignored `logs/`. Tests send it to a temporary folder (an autouse fixture), so the repo is never written.
+- **Debug mode `APP_DEBUG=1`** also prints the traceback on screen and still returns to the menu (decided by me): you see the bug and keep your place.
+- **Startup diagnosis with exit codes:** can't connect → 2 (how to start PostgreSQL in WSL), database missing → 3 (`createdb` + restore), schema missing → 4 (restore the dump), unexpected → 1. Connection errors carry **no SQLSTATE** (checked: `e.sqlstate` is None, since no session exists yet), so "database … does not exist" is recognised from the server's message. The schema check looks for the 11 tables, both views and the key routines (`to_regclass`, `pg_proc`). All three cases are tested with real connection attempts that change nothing (a missing socket dir, a missing DB name, and the always-present `postgres` DB as the "empty" one).
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -151,6 +161,7 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - "Add a stock" and "Refresh all prices" need the network (Yahoo Finance). Failures are shown per ticker, and nothing partial is saved for an add.
 - CSV import: the Windows-path conversion assumes WSL's default mount root `/mnt`; files must be comma-separated (Excel in some locales saves `;`); at most 1,000 rows per file.
 - Rebalancing uses whole shares, so each target is met only to within one share's value (shown as drift). Expensive shares in a small portfolio drift more.
+- Telling "database does not exist" from other connection failures relies on the server's English message text (connection errors have no SQLSTATE); with a non-English server locale it would fall back to the general "can't connect" advice.
 - The CLI app has no login or password: "choose investor" acts as the login (a stated simplification).
 - Identity sequences aren't rolled back with a transaction, so the rolled-back tests use up ids (e.g. the next investor in the test DB is 35, not 1). This is harmless: ids are only unique, not consecutive.
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.

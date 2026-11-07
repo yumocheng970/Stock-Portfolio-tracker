@@ -774,3 +774,26 @@ def execute_rebalance(conn, portfolio_id, trades, day):
             except psycopg.Error as error:
                 raise RebalanceTradeError(f"{trade_type} {shares} {ticker}", error) from error
     return len(trades)
+
+
+# ---------------------------------------------------------------------
+# Startup check (final step): is the schema there?
+# ---------------------------------------------------------------------
+REQUIRED_RELATIONS = ("sector", "exchange", "investor", "stock", "daily_price", "portfolio",
+                      "cash_transaction", "trade", "watchlist", "watchlist_item", "trade_audit",
+                      "v_cash_balance", "v_holdings")
+REQUIRED_ROUTINES = ("execute_trade", "record_cash_transaction", "fn_monthly_returns")
+
+
+def missing_schema_objects(conn):
+    """Names of required tables / views / routines that don't exist in this database
+    (an empty list = the schema is there). to_regclass gives NULL for a missing name."""
+    rows = _fetch_all(conn, """
+        SELECT name FROM unnest(%s::text[]) AS name
+        WHERE to_regclass('public.' || name) IS NULL
+        UNION ALL
+        SELECT name FROM unnest(%s::text[]) AS name
+        WHERE NOT EXISTS (SELECT 1 FROM pg_proc p
+                          WHERE p.proname = name AND p.pronamespace = 'public'::regnamespace)
+    """, (list(REQUIRED_RELATIONS), list(REQUIRED_ROUTINES)))
+    return [row["name"] for row in rows]
