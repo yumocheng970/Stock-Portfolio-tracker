@@ -5,6 +5,7 @@ from app.display import print_table
 from app.errors import safe_call
 from app.inputs import ask_int, ask_text, confirm_typed, pause
 from app.menu import coming_soon, run_menu
+from app.menus.portfolio_menu import portfolios_menu
 
 NAME_MAX = 100       # investor.name  VARCHAR(100)
 EMAIL_MAX = 254      # investor.email VARCHAR(254)
@@ -76,7 +77,7 @@ def choose_investor(session):
 # ---------------------------------------------------------------------
 def investor_home(session):
     run_menu(lambda s: f"Investor home: {s.investor_name}", [
-        ("Portfolios", coming_soon),    # App 2
+        ("Portfolios", portfolios_menu),
         ("Watchlists", coming_soon),    # App 4
         ("Profile",    profile_menu),
     ], session)

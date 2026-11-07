@@ -49,6 +49,12 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **Typed confirmation for deletes:** the user types the investor's email, not "y". Before that, the app shows what the cascade will delete (portfolios, trades, cash transactions, watchlists).
 - **tabulate for tables** (one function call, easy to explain) rather than rich (a large framework). All printing goes through `app/display.py`, so it is one file to change. Numbers are right-aligned via `colalign`, with `disable_numparse` so "100.50" isn't shown as "100.5".
 
+### Python CLI app, App 2: portfolios
+- **Hints, not rules.** Before a trade or a cash transaction the app shows the available cash, the shares held, the earliest allowed date and that day's low/high/close. It enforces none of them. `execute_trade()` / `record_cash_transaction()` and the triggers decide, and their refusal comes back with the database's DETAIL ("Not enough cash. Cash would be -98070.00 on 2025-03-07, after trade 109 (BUY 1000 DEMO @ 107.00)"). So the rules still exist once, and direct SQL is protected in the same way.
+- **Date default = the latest price date, or the portfolio's latest allowed date if later (decided by me, after trying App 1).** The first idea, "Enter = today", was a trap. Prices load only up to yesterday, and new events can't be dated before the portfolio's latest event. A portfolio started today, or a deposit dated today, would block all trading until the next price load. Every date prompt (start date, trade date, deposit/withdrawal) now uses `GREATEST(max(price_date), latest event / start_date)` and shows the available price range. A test proves that a portfolio created with the default start date can buy on the default trade date.
+- The app now runs `max(price_date)` (for the default and the price range) for each date prompt. On 38k rows that is a ~2 ms Seq Scan, because `idx_daily_price_date` was dropped (no analysis query used it). That is fine for an interactive prompt; the index could come back if the table grows a lot.
+- One menu function serves both Buy and Sell (`lambda s: trade(s, "BUY")`), and another both Deposit and Withdraw: less duplicated code.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -61,6 +67,7 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - Reproducible sample data depends on the Faker version (40.40.0) and on the price data up to the fixed `SIM_END` (2026-10-30).
 - `make apply-db` uses `CREATE OR REPLACE`, which can't change a function's return columns. That change needs a manual `DROP FUNCTION` first.
 - The dump drops pg_dump's `\restrict` protection, a 2025 fix that stops psql from running meta-commands injected through malicious object names. That is acceptable because every name and value in this database was created by us. DBeaver itself could not be tested here (Windows GUI). The non-psql restore is tested through psycopg instead. A GUI runs the statements one by one, so a failed run can leave a half-restored database (restore into a new empty one again).
+- Under `make run`, Ctrl+C prints "make: *** Interrupt" (make reports the signal, which the app can't prevent). The README and the start screen say to exit with 0, and demos use `python -m app`.
 - The CLI app has no login or password: "choose investor" acts as the login (a stated simplification).
 - Identity sequences aren't rolled back with a transaction, so the rolled-back tests use up ids (e.g. the next investor in the test DB is 35, not 1). This is harmless: ids are only unique, not consecutive.
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.

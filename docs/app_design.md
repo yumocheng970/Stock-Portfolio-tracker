@@ -62,12 +62,20 @@ Main
 ```
 Items that aren't built yet print "coming in a later step".
 
+Portfolios (App 2): List my portfolios / Create portfolio / Choose portfolio → **Portfolio home**:
+1 Summary, 2 Buy, 3 Sell, 4 Deposit cash, 5 Withdraw cash, 6 Rename portfolio, 7 Delete portfolio.
+
+**Date prompts (all of them):** Enter = the latest price date, or the portfolio's latest allowed
+date if that is later. The prompt shows that default and the available price range
+("prices: 2021-01-04 to 2026-10-30"). Not "today": prices load only up to yesterday, and new events
+can't be before the portfolio's latest event, so "today" would block trading until the next load.
+
 ## 4. Roadmap
 
 | Step | Content |
 |---|---|
-| **App 1** | Foundation (layers, errors, inputs, menu, display, `make run`) + investor CRUD |
-| App 2 | Portfolio: create / rename / delete, cash (deposit, withdraw), trades (buy, sell via `execute_trade`), holdings and balance |
+| **App 1** (done) | Foundation (layers, errors, inputs, menu, display, `make run`) + investor CRUD |
+| **App 2** (done) | Portfolio: create / rename / delete, cash (deposit, withdraw), trades (buy, sell via `execute_trade`), holdings and balance |
 | App 3 | Trade history, edit / delete a trade, audit log, restore a deleted trade from trade_audit |
 | App 4 | Watchlists and items, targets reached (query 5) |
 | App 5 | Reports: monthly return vs S&P 500 (query 1), sector allocation (2), top movers (3), P/L per holding (4) |

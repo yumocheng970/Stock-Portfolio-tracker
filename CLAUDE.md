@@ -138,7 +138,8 @@ Done so far:
   fn_watchlist_targets_reached(investor, as_of) [Q5]. NULL date = today (CURRENT_DATE, DECIDED:
   agrees with v_cash_balance); closes = latest close <= that date (per ticker, uses the PK).
 - Python CLI app (Task 4), design in docs/app_design.md (CRUD matrix, menu tree, roadmap).
-  Run: `make run` (real DB) / `make run-test-db` (DB_NAME env overrides .env). Layers under app/:
+  Run: `python -m app` (demos; exit with 0) or `make run` / `make run-test-db` (Ctrl+C under make
+  prints "make: *** Interrupt"; DB_NAME env overrides .env). Layers under app/:
   data_access.py = ALL SQL (each function in `with conn.transaction():`, dict rows, NotFoundError);
   errors.py = MESSAGES for EVERY constraint/index/trg_/exec_ name (catalog test enforces it) +
   SQLSTATE fallbacks, safe_call() -> (ok, result) prints friendly message; inputs.py (re-ask,
@@ -147,11 +148,17 @@ Done so far:
   Rules stay in the DB; the app checks only input shape. Deletes: typed confirmation (email/name).
   Python bugs still show a traceback until the final step. tests/conftest.py `conn` fixture: test DB
   only, force_rollback transaction (data_access transactions become savepoints).
-  Roadmap: App 1 foundation+investor (DONE) | App 2 portfolio (cash, trades, holdings) |
+  App 2 (DONE): menus/portfolio_menu.py: list (cash, market value, total), create, choose -> home:
+  summary (v_cash_balance + fn_holding_pl open holdings), buy/sell (CALL execute_trade, Enter price =
+  close), deposit/withdraw (CALL record_cash_transaction), rename, delete (typed portfolio name).
+  Hints (cash, shares held, latest allowed date, day's low/high/close) are SHOWN, never enforced.
+  DECIDED: every date prompt's Enter = GREATEST(latest price date, portfolio's latest allowed
+  date) (da.default_event_date), with "prices: first to last" shown; NOT today (would block trading).
+  Roadmap: App 1 foundation+investor (DONE) | App 2 portfolio (DONE) |
   App 3 trade history/audit/restore | App 4 watchlists | App 5 reports (queries 1-5) |
   App 6 market data/admin | extras: PNG charts, CSV trade import (all-or-nothing), rebalance |
   final step before submission: friendly "unexpected error" message + log file instead of tracebacks.
-Next: App 2 (portfolio)
+Next: App 3 (trade history, edit/delete trade, audit log, restore a deleted trade)
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

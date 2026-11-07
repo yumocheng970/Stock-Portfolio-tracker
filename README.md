@@ -1,6 +1,19 @@
 # Stock-Portfolio-tracker
 Course project for database system
 
+## Run the app
+
+From the repo root, with the project's conda env:
+```bash
+conda activate spt
+python -m app                                   # real database (portfolio_tracker), use this for demos
+DB_NAME=portfolio_tracker_test python -m app    # test database (emptied by `make test`)
+```
+Choose a number and press Enter; **exit with 0** from the main menu.
+(`make run` / `make run-test-db` do the same, but Ctrl+C under make prints
+"make: *** Interrupt". That is make reporting the interrupt, not an app error, so prefer
+`python -m app` for demos and exit with 0.)
+
 ## Restore the database from the dump
 
 `db/dump/cheng_final_project.sql` is a plain-SQL `pg_dump` (tables, data, views, functions,

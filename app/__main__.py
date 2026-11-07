@@ -21,6 +21,7 @@ def main():
     with conn:                      # closes the connection at the end, whatever happens
         print("Paper-Trading Portfolio Tracker")
         print(f"Database: {da.database_name(conn)}")
+        print("Choose a number and press Enter. Exit with 0 from the main menu.")
         try:
             main_menu(Session(conn))
         except (KeyboardInterrupt, EOFError):   # Ctrl+C / Ctrl+D
