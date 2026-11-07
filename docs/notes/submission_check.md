@@ -71,30 +71,30 @@ With these workarounds, Run 1 still worked end to end (restore: 1,155 trades; th
 
 ## 4. The Task 4 package / 提交包: `make package` → `cheng_project.zip`
 **EN:**
-- Built with `git archive --prefix=cheng_project/ HEAD`, minus `analytics_cpp/`.
+- Built with `git archive --prefix=cheng_project/ HEAD`, minus `analytics_cpp/` and `CLAUDE.md`.
 - Only **committed** files can be in it, so `.env`, `logs/`, `charts/` and `__pycache__` (all git-ignored) can't get in, and `.git` is never part of an archive. The target warns if there are uncommitted changes.
-- CLAUDE.md is included (your decision).
-- **Contents** (117 files, 3.5 MB uncompressed, **about 1.07 MB** zipped):
+- **CLAUDE.md is excluded** (your decision, changed after the first build: it holds working notes for the AI assistant, not part of building or running the project). It stays in the git repository.
+- **Contents** (117 files, **about 1.05 MB** zipped; listed again after the change: no CLAUDE.md):
 
 | Files | Path |
 |---|---|
-| 1 each | `README.md`, `CLAUDE.md`, `Makefile`, `pytest.ini`, `environment.yml`, `requirements.txt`, `.env.example`, `.gitignore` |
+| 1 each | `README.md`, `Makefile`, `pytest.ini`, `environment.yml`, `requirements.txt`, `.env.example`, `.gitignore` |
 | 23 | `app/` |
 | 7 | `etl/` |
 | 32 | `db/` (schema, views, programmability, analysis, tests, `dump/cheng_final_project.sql`) |
-| 21 | `docs/` |
+| 22 | `docs/` (including these notes) |
 | 6 | `data/` (`tickers.csv`, `samples/`) |
 | 20 | `tests/` |
 
-- **Secret scan:** no `.env`, `logs/`, `charts/`, `__pycache__`, `.git`, or `analytics_cpp` entries. No line sets `DB_PASSWORD=` (or `password="…"`) to a value. The local `.env` has no password at all (peer login), so there is nothing to leak.
+- **Secret scan:** no `.env`, `logs/`, `charts/`, `__pycache__`, `.git`, `analytics_cpp` or `CLAUDE.md` entries. No line sets `DB_PASSWORD=` (or `password="…"`) to a value. The local `.env` has no password at all (peer login), so there is nothing to leak.
 - The zip is git-ignored (`cheng_project.zip`). Rebuild it right before uploading: `make dump && make verify-dump`, commit, `make package`.
 
 **中文：**
-- 用 `git archive` 从 HEAD 生成，排除 `analytics_cpp/`。
+- 用 `git archive` 从 HEAD 生成，排除 `analytics_cpp/` 和 `CLAUDE.md`。
 - 只会包含**已提交**的文件，所以 `.env`、`logs/`、`charts/`、`__pycache__`（都被 git 忽略）不可能进入压缩包，`.git` 也从来不在 archive 里。有未提交改动时会给出警告。
-- 包含 CLAUDE.md（按你的决定）。
-- 117 个文件，压缩后约 1.07 MB，内容见上表。
-- **敏感信息扫描：** 没有 `.env`、日志、图表、缓存、`.git`、`analytics_cpp`；没有任何一行给 `DB_PASSWORD` 赋了值；本地 `.env` 本身就没有密码（peer 登录）。
+- **不包含 CLAUDE.md**（你后来改变了决定：它是给 AI 助手的工作说明，不属于项目的构建或运行）。它仍保留在 git 仓库中。
+- 117 个文件，压缩后约 1.05 MB，内容见上表（已重新列出，确认没有 CLAUDE.md）。
+- **敏感信息扫描：** 没有 `.env`、日志、图表、缓存、`.git`、`analytics_cpp`、`CLAUDE.md`；没有任何一行给 `DB_PASSWORD` 赋了值；本地 `.env` 本身就没有密码（peer 登录）。
 - 压缩包被 git 忽略。上传前请重新生成：`make dump && make verify-dump`，提交，然后 `make package`。
 
 ## 5. Commits in this step / 本步提交

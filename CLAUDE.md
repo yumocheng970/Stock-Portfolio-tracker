@@ -231,7 +231,7 @@ Done so far:
   24.04; Windows native / macOS written but untested). environment.yml is now PORTABLE (no build
   strings; only the 8 imported libraries; Faker=40.40.0 exact; C++ / kaggle deps dropped);
   requirements.txt the same for pip. `make package` -> cheng_project.zip (git archive of HEAD minus
-  analytics_cpp/; CLAUDE.md included; git-ignored; warns on uncommitted changes).
+  analytics_cpp/ and CLAUDE.md (DECIDED: excluded); git-ignored; warns on uncommitted changes).
 Next: final report (docs/notes/report_material.md) + video; right before upload: make dump &&
 make verify-dump, commit, make package
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
