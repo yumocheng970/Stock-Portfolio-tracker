@@ -12,7 +12,7 @@ from app.display import format_pct, format_value, print_table
 from app.errors import safe_call
 from app.inputs import ask_month, pause
 from app.menu import run_menu
-from app.menus.common import ask_event_date
+from app.menus.common import ask_event_date, offer_chart
 
 MONTHLY_COLUMNS = [
     ("month_text", "Month"), ("start_value", "Start value"), ("end_value", "End value"),
@@ -86,13 +86,15 @@ def monthly_report(session):
         print("  No months to show for this range (check the portfolio's start date and the months).")
         pause()
         return
-    rows = [{**row, "month_text": row["month"].strftime("%Y-%m")} for row in rows]
-    print_table(rows, MONTHLY_COLUMNS,
+    shown = [{**row, "month_text": row["month"].strftime("%Y-%m")} for row in rows]
+    print_table(shown, MONTHLY_COLUMNS,
                 percent=("portfolio_return_pct", "spx_return_pct", "excess_return_pct"))
-    summary = monthly_summary(rows)
-    print(f"\n  Cumulative {rows[0]['month_text']} to {rows[-1]['month_text']}: "
+    summary = monthly_summary(shown)
+    print(f"\n  Cumulative {shown[0]['month_text']} to {shown[-1]['month_text']}: "
           f"portfolio {format_pct(summary['cum_portfolio'])} vs S&P 500 "
           f"{format_pct(summary['cum_spx'])}: {summary['verdict']}")
+    # the chart's CSV gets the SQL function's rows unchanged (not the display copy)
+    offer_chart("save_returns_chart", rows, session.portfolio_id)
     pause()
 
 
@@ -111,6 +113,8 @@ def sector_report(session):
               f"({format_value(cash['market_value'])}).")
     else:
         print_table(rows, SECTOR_COLUMNS, percent=("pct",), signed=False)   # shares: no "+"
+    if rows:
+        offer_chart("save_sector_chart", rows, session.portfolio_id, as_of)
     pause()
 
 

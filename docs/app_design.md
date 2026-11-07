@@ -98,5 +98,5 @@ can't be before the portfolio's latest event, so "today" would block trading unt
 | **App 4** (done) | Watchlists and items, targets reached (query 5) |
 | **App 5** (done) | Reports: monthly return vs S&P 500 (query 1), sector allocation (2), top movers (3), P/L per holding (4) |
 | **App 6** (done) | Market data (price history, refresh prices) and Admin (add a stock + download its prices, edit, delete) |
-| Extras | PNG charts (e.g. portfolio vs S&P 500); CSV trade import (all-or-nothing, one transaction); rebalance to target % |
+| Extras | **PNG charts (done: portfolio vs S&P 500, sector allocation, top movers; + CSV of the data)**; CSV trade import (all-or-nothing, one transaction); rebalance to target % |
 | **Final step, before submission** | Replace raw tracebacks with a friendly "unexpected error" message + a log file. Until then, a Python bug (not a database error) still shows its traceback, so bugs stay visible during development. |

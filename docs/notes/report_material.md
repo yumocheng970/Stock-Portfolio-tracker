@@ -97,6 +97,13 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **A ticker rename shows ON UPDATE CASCADE end to end:** stock → daily_price → trade (the audit trigger logs one UPDATE row per trade with the OLD ticker), and stock → watchlist_item. The app shows the counts first. Cash and holdings are unchanged (tested).
 - **Tests never use the network.** Every download is replaced with `unittest.mock` (`return_value`, `side_effect`, `assert_called_once_with`). An autouse fixture also makes any real `yfinance.Ticker` call raise, so a forgotten mock fails loudly instead of quietly downloading.
 
+### Extra 1: PNG charts
+- **Charts reuse the report rows.** "Save as PNG chart?" is offered right after a report, with the rows the user just saw. The CSV next to each PNG is exactly the SQL function's rows (a test compares them), so every chart can be checked against its numbers.
+- **The portfolio and S&P 500 lines are indexed to 100 at the start:** level = 100 × (1 + cumulative %). Both start at the same point even though the portfolio is worth e.g. 127,000 and the index 4,500, and the gap at the end is the cumulative difference.
+- **Non-interactive matplotlib backend "Agg":** it only renders into files and can never open a window, so it is safe in tests, over SSH and in WSL. In WSL the app offers to open the PNG with Windows (`wslpath -w` + `explorer.exe`). A test fixture makes any attempt to start a program fail.
+- Charts only read the database, so they also work in `make run-readonly` (tested with a read-only transaction). The files go into `charts/` (git-ignored), named by portfolio id, chart type and the data's date.
+- `matplotlib-base` (conda-forge) instead of `matplotlib`: the same library without GUI toolkits (Qt), which a PNG-only backend doesn't need. It is loaded only when a chart is requested, so app start-up stays fast.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.

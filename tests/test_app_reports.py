@@ -117,7 +117,7 @@ def test_to_month_default_is_the_latest_price_month(rpt, monkeypatch, capsys):
     assert default_to_month(session) == JUNE                     # month of 2025-06-30
     # The SQL function's own default (to = current month) would end with a flat month:
     assert da.monthly_returns(conn, ids["Rpt"])[-1]["month"] == date.today().replace(day=1)
-    fake_input(monkeypatch, ["", "", ""])                         # from, to, pause
+    fake_input(monkeypatch, ["", "", "", ""])                     # from, to, save chart? (no), pause
     reports_menu.monthly_report(session)
     out = capsys.readouterr().out
     assert "2025-06 " in out and date.today().strftime("%Y-%m") + " " not in out
@@ -146,10 +146,10 @@ def test_empty_portfolio_reports(rpt, monkeypatch, capsys):
     fake_input(monkeypatch, ["", ""])
     reports_menu.pl_report(session)
     assert "No holdings yet as of 2025-06-30." in capsys.readouterr().out
-    fake_input(monkeypatch, ["", ""])
+    fake_input(monkeypatch, ["", "", ""])                         # as of, save chart? (no), pause
     reports_menu.sector_report(session)
     assert "No stock holdings as of 2025-06-30: 100.00 % cash (10,000.00)." in capsys.readouterr().out
-    fake_input(monkeypatch, ["", "", ""])
+    fake_input(monkeypatch, ["", "", "", ""])                     # from, to, save chart? (no), pause
     reports_menu.monthly_report(session)
     assert "portfolio 0.00 %" in capsys.readouterr().out          # cash only: no return
 
@@ -174,7 +174,7 @@ def test_top_movers_end_before_start_is_a_friendly_message(rpt, monkeypatch, cap
 
 def test_top_movers_gainers_and_empty_losers(rpt, monkeypatch, capsys):
     conn, _ = rpt
-    fake_input(monkeypatch, ["2025-05-01", "2025-05-30", ""])       # RP1 100 -> 110; RP2 has 1 day only
+    fake_input(monkeypatch, ["2025-05-01", "2025-05-30", "", ""])   # + "save chart?" (no); RP2 has 1 day only
     market_menu.top_movers(Session(conn))
     out = capsys.readouterr().out
     assert "RP1" in out and "+10.00 %" in out

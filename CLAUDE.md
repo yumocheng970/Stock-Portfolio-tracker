@@ -64,7 +64,8 @@ Then the details.
   and again WITHOUT psql via db/tests/restore_without_psql.py, compares both, drops the temp DB)
 
 ## Stack
-PostgreSQL, Python 3 + psycopg (CLI numbered menus), tabulate (terminal tables), yfinance (auto_adjust=False, insert-only refresh), Faker for names/emails
+PostgreSQL, Python 3 + psycopg (CLI numbered menus), tabulate (terminal tables), matplotlib-base
+(Agg backend, PNG charts), yfinance (auto_adjust=False, insert-only refresh), Faker for names/emails
 
 ## Schema (11 tables)
 investor, portfolio, cash_transaction, trade, stock, sector, exchange,
@@ -198,8 +199,13 @@ Done so far:
   (da.refresh_all_prices -> etl.load_prices.refresh_tickers over ALL stock rows, download injectable),
   list sectors/exchanges. DECIDED: app never writes data/tickers.csv. Tests: unittest.mock for every
   download + autouse conftest.no_network (yfinance.Ticker raises). NEVER add/refresh on the real DB.
-Next: extras (charts PNG, CSV trade import, rebalance) or the final step (friendly unexpected-error
-message + log file), then report / dump
+  Extra 1 (DONE): app/charts.py (matplotlib Agg; save_returns_chart / save_sector_chart /
+  save_movers_chart(rows, ..., out_dir=None) -> (png, csv) or None; CSV = the SQL rows unchanged;
+  CHART_DIR = charts/ (git-ignored) looked up at call time; is_wsl / open_in_windows via wslpath +
+  explorer.exe). menus/common.offer_chart("save_..._chart", *args) after monthly / sector reports and
+  top movers (y/N; lazy import so matplotlib loads only on demand). print_table(thousands=("volume",)).
+Next: Extra 2 (CSV trade import, all-or-nothing) / Extra 3 (rebalance), or the final step (friendly
+unexpected-error message + log file), then report / dump
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

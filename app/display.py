@@ -38,22 +38,31 @@ def format_pct(value, signed=True):
     return f"{value:+.2f} %"          # "+" in the format spec: always show the sign
 
 
-def print_table(rows, columns, percent=(), signed=True):
+def print_table(rows, columns, percent=(), signed=True, thousands=()):
     """Print rows (a list of dicts) as a table.
 
     columns: list of (key in the row dict, header text), in display order.
     percent: keys of columns that hold percentages; shown as "+12.34 %"
              (signed=False: "12.34 %", for shares of a whole).
+    thousands: keys of whole-number columns shown with separators (volume
+             4828050000 -> 4,828,050,000). Not the default for integers,
+             because IDs and years must not get commas.
     """
     if not rows:
         print("  (none)")
         return
     headers = [header for _key, header in columns]
-    body = [[format_pct(row[key], signed) if key in percent else format_value(row[key])
-             for key, _header in columns] for row in rows]
+    def cell(row, key):
+        if key in percent:
+            return format_pct(row[key], signed)
+        if key in thousands and row[key] is not None:
+            return f"{row[key]:,}"                 # "," in the format spec: thousands separators
+        return format_value(row[key])
+
+    body = [[cell(row, key) for key, _header in columns] for row in rows]
     # Numbers (int, Decimal) and percentages right-aligned, everything else left-aligned.
     # disable_numparse: tabulate must not re-read "100.50" as 100.5.
-    align = ["right" if key in percent
+    align = ["right" if key in percent or key in thousands
              or any(isinstance(row[key], (int, Decimal)) for row in rows) else "left"
              for key, _header in columns]
     print(tabulate(body, headers=headers, tablefmt="rounded_outline",

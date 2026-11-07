@@ -2,7 +2,7 @@
 the project's default date, and the ticker prompt that re-asks unknown tickers."""
 from app import data_access as da
 from app.errors import safe_call
-from app.inputs import ask_date, ask_text
+from app.inputs import ask_date, ask_text, ask_yes_no
 
 TICKER_MAX = 10         # stock.ticker VARCHAR(10)
 
@@ -53,3 +53,24 @@ def ask_ticker(session, allow_index=False):
             print(f"  {ticker}: {info['company_name']}, you hold {info['shares_held']} shares, "
                   f"latest price {info['last_price_date']}")
         return ticker
+
+
+def offer_chart(function_name, *args):
+    """After a report: "Save as PNG chart?" -> charts.<function_name>(*args) writes
+    the PNG and its CSV (app/charts.py). Prints the paths; in WSL offers to open
+    the PNG in Windows. Only reads data, so it also works in read-only mode.
+    The function is passed by NAME, so the menus don't import app.charts and
+    matplotlib is loaded only when a chart is actually wanted."""
+    if not ask_yes_no("Save as PNG chart (+ CSV data)?"):
+        return
+    from app import charts                         # loaded here, on first use
+    save_function = getattr(charts, function_name)  # getattr(module, "name") = module.name
+    paths = save_function(*args)
+    if paths is None:
+        print("  Nothing to chart: there is no data for this selection.")
+        return
+    png, csv_file = paths
+    print(f"  Saved chart: {png}")
+    print(f"  Saved data:  {csv_file}")
+    if charts.is_wsl() and ask_yes_no("Open the chart in Windows?"):
+        charts.open_in_windows(png)

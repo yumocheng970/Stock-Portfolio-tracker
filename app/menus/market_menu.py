@@ -7,7 +7,7 @@ from app.display import print_table
 from app.errors import safe_call
 from app.inputs import ask_date, ask_int, pause
 from app.menu import run_menu
-from app.menus.common import ask_ticker, show_price_range
+from app.menus.common import ask_ticker, offer_chart, show_price_range
 
 MOVER_COLUMNS = [
     ("rank", "Rank"), ("ticker", "Ticker"), ("company_name", "Company"),
@@ -76,7 +76,7 @@ def price_history(session):
     ok, rows = safe_call(da.price_history, session.conn, ticker, start, end)
     if ok:
         if rows:
-            print_table(rows, PRICE_COLUMNS)
+            print_table(rows, PRICE_COLUMNS, thousands=("volume",))
         else:
             print(f"  No prices for {ticker} between {start} and {end} (weekends / holidays?).")
     pause()
@@ -112,4 +112,6 @@ def top_movers(session):
         else:
             print(f"  No {title.lower()} between {start} and {end}.")
     print("\n  Tied stocks share a rank, and the next rank is skipped (1, 1, 3).")
+    if rows:
+        offer_chart("save_movers_chart", rows, start, end)
     pause()

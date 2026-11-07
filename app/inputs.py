@@ -135,6 +135,17 @@ def ask_month(prompt, default_text):
         print("  Please type a month as year-month, e.g. 2025-03 or 2025-3.")
 
 
+def ask_yes_no(prompt):
+    """A yes/no question; Enter = no. Returns True only for y / yes (any case)."""
+    while True:
+        answer = input(f"{prompt} (y/N): ").strip().lower()
+        if answer in ("", "n", "no"):
+            return False
+        if answer in ("y", "yes"):
+            return True
+        print("  Please type y or n.")
+
+
 def confirm_typed(expected, what):
     """Typed confirmation for dangerous actions: the user must type `expected`
     exactly (e.g. the investor's email). Returns True only on an exact match."""

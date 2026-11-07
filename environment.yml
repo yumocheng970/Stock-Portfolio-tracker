@@ -37,6 +37,7 @@ dependencies:
   - pandas
   - psycopg
   - tabulate
+  - matplotlib-base
   - pip
   - pip:
       - kaggle>=2.2
