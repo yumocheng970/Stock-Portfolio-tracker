@@ -60,6 +60,21 @@ def ask_int(prompt, minimum=None, maximum=None, required=True):
         return number
 
 
+def parse_amount(text):
+    """'1500.25' -> Decimal('1500.25'). Raises ValueError (with a sentence for the
+    user) for text that isn't a normal number with at most 2 decimals. Used by
+    ask_decimal and by the CSV import (app/csv_import.py)."""
+    try:
+        amount = Decimal(text)
+    except InvalidOperation:              # Decimal("abc") raises this
+        raise ValueError("Please type a number, e.g. 1500 or 1500.25.") from None
+    if not amount.is_finite():            # Decimal accepts "NaN" and "Infinity"
+        raise ValueError("Please type a normal number.")
+    if amount.as_tuple().exponent < -2:   # 1.234 has exponent -3
+        raise ValueError("At most 2 decimals, please.")
+    return amount
+
+
 def ask_decimal(prompt, required=True, clear_word=None):
     """Ask for an amount of money or a price, returned as a Decimal (exact,
     unlike float). Accepts "1,000.50". At most 2 decimals, because the
@@ -76,17 +91,9 @@ def ask_decimal(prompt, required=True, clear_word=None):
         if clear_word is not None and answer.lower() == clear_word:
             return CLEAR
         try:
-            amount = Decimal(answer)
-        except InvalidOperation:          # Decimal("abc") raises this
-            print("  Please type a number, e.g. 1500 or 1500.25.")
-            continue
-        if not amount.is_finite():        # Decimal accepts "NaN" and "Infinity"
-            print("  Please type a normal number.")
-            continue
-        if amount.as_tuple().exponent < -2:   # 1.234 has exponent -3
-            print("  At most 2 decimals, please.")
-            continue
-        return amount
+            return parse_amount(answer)
+        except ValueError as problem:
+            print(f"  {problem}")
 
 
 def parse_date(text):

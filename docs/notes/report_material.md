@@ -104,6 +104,18 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - Charts only read the database, so they also work in `make run-readonly` (tested with a read-only transaction). The files go into `charts/` (git-ignored), named by portfolio id, chart type and the data's date.
 - `matplotlib-base` (conda-forge) instead of `matplotlib`: the same library without GUI toolkits (Qt), which a PNG-only backend doesn't need. It is loaded only when a chart is requested, so app start-up stays fast.
 
+### Extra 2: CSV trade import
+- **Two-stage validation.**
+  - Python checks only the **shape** of every row (a real date, a known type, numbers that are numbers) and lists **all** bad rows with their row numbers before touching the database.
+  - The database then decides whether each row is **allowed**: every row goes through `execute_trade()` / `record_cash_transaction()` and the same triggers as a hand-typed trade.
+  - No business rule is written twice.
+- **All or nothing, with row numbers.** All rows run inside ONE transaction. The first refusal raises `ImportRowError(row, error)` inside the transaction block, which rolls back every earlier row too. The user sees e.g. "Row 6: Not enough cash. Cash would be -204,679.60 on 2026-09-15, after trade … (BUY 1000 NVDA @ 212.17)."
+- **Rows are sorted into history order (decided by me):** date, then cash before trades, then file order (a stable sort), which is exactly the order the database replays. The preview says when rows were reordered, and messages keep the file's row numbers.
+- **Windows paths in WSL:** `C:\Users\…\trades.csv` → `/mnt/c/Users/…/trades.csv` (pure function; quotes from "Copy as path" stripped). Files saved by Excel (with a byte-order mark) are read with `utf-8-sig`.
+- **Row limit 1,000:** each imported row replays the portfolio's history (the trigger design), so the cost grows faster than linearly. Measured on the test DB: 250 rows 0.29 s, 500 rows 0.65 s, 1,000 rows 1.70 s.
+- **Read-only mode** refuses the import up front with a friendly message (the database would refuse anyway).
+- Two sample files in `data/samples/` (one valid, one failing on row 6) for the demo video, both tested.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -122,6 +134,7 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - A stock added in the app is not in `data/tickers.csv`: after `reset.sql` + `make load-prices` it is gone unless it is added to the CSV by hand.
 - Old trade_audit rows keep the ticker they had. Restoring a trade that was deleted *before* a ticker rename fails with the friendly FK message (no price for the old ticker).
 - "Add a stock" and "Refresh all prices" need the network (Yahoo Finance). Failures are shown per ticker, and nothing partial is saved for an add.
+- CSV import: the Windows-path conversion assumes WSL's default mount root `/mnt`; files must be comma-separated (Excel in some locales saves `;`); at most 1,000 rows per file.
 - The CLI app has no login or password: "choose investor" acts as the login (a stated simplification).
 - Identity sequences aren't rolled back with a transaction, so the rolled-back tests use up ids (e.g. the next investor in the test DB is 35, not 1). This is harmless: ids are only unique, not consecutive.
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.

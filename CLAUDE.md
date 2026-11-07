@@ -204,8 +204,16 @@ Done so far:
   CHART_DIR = charts/ (git-ignored) looked up at call time; is_wsl / open_in_windows via wslpath +
   explorer.exe). menus/common.offer_chart("save_..._chart", *args) after monthly / sector reports and
   top movers (y/N; lazy import so matplotlib loads only on demand). print_table(thousands=("volume",)).
-Next: Extra 2 (CSV trade import, all-or-nothing) / Extra 3 (rebalance), or the final step (friendly
-unexpected-error message + log file), then report / dump
+  Extra 2 (DONE): Portfolio home 8 "Import from CSV". app/csv_import.py (pure: to_linux_path converts
+  C:\... -> /mnt/c/..., read_events checks the SHAPE of ALL rows -> (events, errors), utf-8-sig, max
+  1000 rows (measured 1.7 s), history_order = date, cash before trades, row; preview). da.import_events
+  = ONE transaction, each row via execute_trade / record_cash_transaction; first refusal ->
+  ImportRowError(row, error) -> "Row N: <message + DETAIL>", everything rolled back. Read-only ->
+  refused up front. Samples: data/samples/import_valid.csv, import_fails_row_6.csv (+ README).
+  Portfolio home is now: 1 Summary 2 Buy 3 Sell 4 Trade history 5 Reports 6 Deposit 7 Withdraw
+  8 Import from CSV 9 Rename 10 Delete.
+Next: Extra 3 (rebalance to target %) or the final step (friendly unexpected-error message + log
+file), then report / dump
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

@@ -11,6 +11,7 @@ Rules:
 - No business rules here: the database checks them (CHECK, UNIQUE, triggers).
   Errors are passed on unchanged; the menus show them via errors.safe_call().
 """
+import psycopg
 from psycopg.rows import dict_row
 
 
@@ -698,3 +699,37 @@ def refresh_all_prices(conn, download=None):
     tickers = [row["ticker"] for row in _fetch_all(conn, "SELECT ticker FROM stock ORDER BY ticker")]
     return load_prices.refresh_tickers(conn, tickers, market_data.yesterday(),
                                        download=download or market_data.download_prices)
+
+
+# ---------------------------------------------------------------------
+# CSV import (Extra 2): all rows in ONE transaction
+# ---------------------------------------------------------------------
+class ImportRowError(Exception):
+    """The database refused one row of an import. Carries the file row number
+    and the original database error (errors.friendly_message shows both)."""
+    def __init__(self, row, error):
+        super().__init__(f"row {row}: {error}")
+        self.row = row
+        self.error = error
+
+
+def import_events(conn, portfolio_id, events):
+    """Import checked rows (app/csv_import.Event) in ONE transaction, in the given
+    order, each through execute_trade() / record_cash_transaction() so every rule
+    applies. The first refusal raises ImportRowError INSIDE the transaction block,
+    which rolls back every row imported before it: all or nothing.
+    Returns {"trades": n, "cash": m}."""
+    counts = {"trades": 0, "cash": 0}
+    with conn.transaction():
+        for event in events:
+            try:
+                if event.is_cash:
+                    record_cash_transaction(conn, portfolio_id, event.kind, event.amount, event.date)
+                    counts["cash"] += 1
+                else:
+                    execute_trade(conn, portfolio_id, event.ticker, event.kind, event.shares,
+                                  event.date, event.price)
+                    counts["trades"] += 1
+            except psycopg.Error as error:
+                raise ImportRowError(event.row, error) from error
+    return counts

@@ -16,7 +16,7 @@ from decimal import Decimal
 
 import psycopg
 
-from app.data_access import NotFoundError
+from app.data_access import ImportRowError, NotFoundError
 from app.market_data import DownloadError
 
 MESSAGES = {
@@ -149,6 +149,8 @@ def friendly_message(error):
     """The sentence to show the user for any exception from a database action."""
     if isinstance(error, (NotFoundError, DownloadError)):
         return str(error)
+    if isinstance(error, ImportRowError):         # "Row 6: Not enough cash. Cash would be ..."
+        return f"Row {error.row}: {friendly_message(error.error)}"
     if isinstance(error, psycopg.OperationalError):
         return "Lost the connection to the database. Please restart the app."
 
@@ -179,6 +181,6 @@ def safe_call(func, *args, **kwargs):
     """
     try:
         return True, func(*args, **kwargs)
-    except (psycopg.Error, NotFoundError, DownloadError) as error:
+    except (psycopg.Error, NotFoundError, DownloadError, ImportRowError) as error:
         print(f"\n  !! {friendly_message(error)}")
         return False, None

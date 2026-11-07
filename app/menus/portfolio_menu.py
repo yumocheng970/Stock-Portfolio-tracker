@@ -11,7 +11,8 @@ from decimal import Decimal
 from app import data_access as da
 from app.display import format_value, print_table
 from app.errors import safe_call
-from app.inputs import ask_decimal, ask_int, ask_text, confirm_typed, pause
+from app import csv_import
+from app.inputs import ask_decimal, ask_int, ask_text, ask_yes_no, confirm_typed, pause
 from app.menu import run_menu
 from app.menus.common import ask_event_date, ask_ticker
 from app.menus.reports_menu import reports_menu
@@ -99,6 +100,7 @@ def portfolio_home(session):
         ("Reports",          reports_menu),
         ("Deposit cash",     lambda s: cash(s, "DEPOSIT")),
         ("Withdraw cash",    lambda s: cash(s, "WITHDRAWAL")),
+        ("Import from CSV",  import_csv),
         ("Rename portfolio", rename),
         ("Delete portfolio", delete),
     ], session)
@@ -187,6 +189,53 @@ def show_cash_now(session):
     ok, cash_row = safe_call(da.cash_summary, session.conn, session.portfolio_id)
     if ok and cash_row is not None:
         print(f"  Cash now: {format_value(cash_row['cash_balance'])}")
+
+
+def import_csv(session):
+    """Import trades and cash transactions from a CSV file: check every row's shape,
+    preview, confirm, then import ALL rows in one transaction (or none)."""
+    print("\nImport from CSV. Columns: date,type,ticker,shares,price,amount")
+    print("  BUY/SELL rows: ticker + shares (+ price; empty = that day's close).")
+    print("  DEPOSIT/WITHDRAWAL rows: amount. Samples: data/samples/")
+    ok, read_only = safe_call(da.is_read_only, session.conn)
+    if ok and read_only:
+        print("  Import is not possible in read-only mode: nothing was changed.")
+        pause()
+        return
+    typed = ask_text("CSV file path (Enter = cancel)", 500, required=False)
+    if typed is None:
+        return
+    path = csv_import.to_linux_path(typed)
+
+    events, errors = csv_import.read_events(path)
+    if errors:
+        print(f"\n  The file has {len(errors)} problem(s); nothing was saved:")
+        for error in errors:
+            print(f"    {error}")
+        pause()
+        return
+
+    info = csv_import.preview(events)
+    print(f"\n  {path}")
+    print(f"  {info['trades']} trades and {info['cash']} cash transactions, "
+          f"{info['first_date']} to {info['last_date']}")
+    print(f"  Tickers: {', '.join(info['tickers']) or '-'}")
+    if info["reordered"]:
+        print("  Rows will be imported in history order (date, cash before trades); "
+              "messages use the file's row numbers.")
+    if not ask_yes_no(f"Import these {len(events)} rows into {session.portfolio_name}?"):
+        print("  Nothing was imported.")
+        pause()
+        return
+
+    ok, counts = safe_call(da.import_events, session.conn, session.portfolio_id,
+                           csv_import.history_order(events))
+    if ok:
+        print(f"\n  Imported {counts['trades']} trades and {counts['cash']} cash transactions.")
+        show_cash_now(session)
+    else:
+        print("  Nothing was saved (the whole import was rolled back).")
+    pause()
 
 
 def rename(session):
