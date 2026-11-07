@@ -169,7 +169,14 @@ Done so far:
   create, choose -> home: list items (close, target, % vs target, reached), add (ask_ticker
   allow_index=True: ^GSPC may be watched), edit target (Enter keep, 'none' -> inputs.CLEAR sentinel ->
   NULL), remove, rename, delete (type the name). "Reached" always from fn_watchlist_targets_reached.
+  App 5 (DONE): menus/reports_menu.py (Portfolio home item 5): monthly return vs S&P (from/to months;
+  DECIDED: to-month Enter = month of the latest price date, not the current month), sector allocation
+  (as-of, cash incl., shares unsigned), P/L per holding (open/closed + totals); menus/market_menu.py
+  (Main 2): top movers (end = latest price date, start = end - 30 days; end < start checked in the app).
+  da wrappers return exactly the fn_ output. menus/common.py: show_price_range, ask_event_date,
+  ask_ticker (shared prompts). display: format_pct (+12.34 %), round2 = half UP like PostgreSQL.
   Roadmap: App 1 foundation+investor (DONE) | App 2 portfolio (DONE) | App 3 (DONE) | App 4 (DONE) |
+  App 5 (DONE) |
   App 3 trade history/audit/restore | App 4 watchlists | App 5 reports (queries 1-5) |
   App 6 market data/admin | extras: PNG charts, CSV trade import (all-or-nothing), rebalance |
   final step before submission: friendly "unexpected error" message + log file instead of tracebacks.
@@ -180,7 +187,7 @@ Done so far:
 - RULE (learned 2026-11-07): scripted / piped app runs on the REAL DB only with `make run-readonly`
   (or PGOPTIONS='-c default_transaction_read_only=on'). A desynced script once created a portfolio
   there (removed; fingerprint restored; the user reseeded the real DB later that day).
-Next: App 5 (reports: analysis queries 1-5)
+Next: App 6 (market data: price history + refresh; admin: stocks)
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

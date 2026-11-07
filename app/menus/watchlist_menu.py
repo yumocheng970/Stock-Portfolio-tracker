@@ -9,7 +9,7 @@ from app.display import print_table
 from app.errors import safe_call
 from app.inputs import CLEAR, ask_decimal, ask_int, ask_text, confirm_typed, pause
 from app.menu import run_menu
-from app.menus.portfolio_menu import ask_ticker
+from app.menus.common import ask_ticker
 
 NAME_MAX = 100          # watchlist.watchlist_name VARCHAR(100)
 

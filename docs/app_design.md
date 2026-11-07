@@ -63,8 +63,12 @@ Main
 Items that aren't built yet print "coming in a later step".
 
 Portfolios (App 2): List my portfolios / Create portfolio / Choose portfolio → **Portfolio home**:
-1 Summary, 2 Buy, 3 Sell, 4 Trade history, 5 Deposit cash, 6 Withdraw cash, 7 Rename portfolio,
-8 Delete portfolio.
+1 Summary, 2 Buy, 3 Sell, 4 Trade history, 5 Reports, 6 Deposit cash, 7 Withdraw cash,
+8 Rename portfolio, 9 Delete portfolio.
+
+Reports (App 5): 1 Monthly return vs S&P 500 (from/to months; Enter at "to" = the month of the
+latest price date), 2 Sector allocation (as of a date, cash included), 3 P/L per holding (as of a
+date, open and closed, with totals). Market data (Main → 2): Top movers (start/end dates).
 
 Watchlists (App 4): 1 List my watchlists (items, targets reached), 2 Create watchlist, 3 Choose
 watchlist → **Watchlist home**: 1 List items, 2 Add item (indexes allowed), 3 Edit target (Enter = keep,
@@ -87,7 +91,7 @@ can't be before the portfolio's latest event, so "today" would block trading unt
 | **App 2** (done) | Portfolio: create / rename / delete, cash (deposit, withdraw), trades (buy, sell via `execute_trade`), holdings and balance |
 | **App 3** (done) | Trade history, edit / delete a trade, audit log, restore a deleted trade from trade_audit |
 | **App 4** (done) | Watchlists and items, targets reached (query 5) |
-| App 5 | Reports: monthly return vs S&P 500 (query 1), sector allocation (2), top movers (3), P/L per holding (4) |
+| **App 5** (done) | Reports: monthly return vs S&P 500 (query 1), sector allocation (2), top movers (3), P/L per holding (4) |
 | App 6 | Market data (price history, refresh prices) and Admin (add a stock + download its prices, edit, delete) |
 | Extras | PNG charts (e.g. portfolio vs S&P 500); CSV trade import (all-or-nothing, one transaction); rebalance to target % |
 | **Final step, before submission** | Replace raw tracebacks with a friendly "unexpected error" message + a log file. Until then, a Python bug (not a database error) still shows its traceback, so bugs stay visible during development. |

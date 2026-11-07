@@ -9,6 +9,8 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 # Year-month-day; month and day may have 1 or 2 digits: 2026-11-06 or 2026-11-6
+# (MONTH_PATTERN: year-month only, for the monthly report)
+MONTH_PATTERN = re.compile(r"(\d{4})-(\d{1,2})")
 
 # A "sentinel": a unique object that means "the user asked to CLEAR the value".
 # It can't be confused with None ("keep") or with any number, because the only
@@ -115,6 +117,22 @@ def ask_date(prompt, default=None, no_default_reason=None):
             return parse_date(answer)
         except ValueError:                # bad format, or a day like 2025-02-30
             print("  Please type a real date as year-month-day, e.g. 2025-03-14 or 2025-3-14.")
+
+
+def ask_month(prompt, default_text):
+    """Ask for a month as year-month (2025-03 or 2025-3). Returns the first day of
+    that month, date(2025, 3, 1), or None when the user presses Enter: the
+    caller decides what Enter means (`default_text` is shown in the prompt)."""
+    while True:
+        answer = input(f"{prompt} (YYYY-MM) [Enter = {default_text}]: ").strip()
+        if answer == "":
+            return None
+        match = MONTH_PATTERN.fullmatch(answer)
+        if match is not None:
+            year, month = (int(part) for part in match.groups())
+            if 1 <= month <= 12:
+                return date(year, month, 1)
+        print("  Please type a month as year-month, e.g. 2025-03 or 2025-3.")
 
 
 def confirm_typed(expected, what):

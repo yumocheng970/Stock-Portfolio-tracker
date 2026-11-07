@@ -78,6 +78,14 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **Watching an index is allowed, trading it isn't.** The same ticker prompt is reused with `allow_index=True` for watchlists, so ^GSPC can be added. The `trg_trade_not_index` rule applies only to trades.
 - **Three answers for an optional value:** Enter = keep, a number = set, `none` = clear (NULL). The input helper returns a unique *sentinel* object `CLEAR` for "clear", so it can't be confused with `None` (keep) or with a number. A negative or zero target still goes to the database, which refuses it (`chk_watchlist_target_positive`): a hint, not a rule.
 
+### Python CLI app, App 5: reports
+- **Reports reuse the analysis functions unchanged.** Each data-access wrapper is `SELECT * FROM fn_…(…)`, and a test checks that it returns exactly the function's rows. The app adds only formatting: `+12.34 %`, a cumulative line ("the portfolio beat/trailed the S&P 500 by N points") and P/L totals. So the report and the CLI can't disagree.
+- **The monthly report's "to" month defaults to the month of the latest price date (decided by me).** The function's own default is the current month, but prices stop before today. With that default, the last row would be a flat, partial month showing a misleading 0.00 %. A test checks the default and that the current month doesn't appear.
+- **An empty result prints a sentence, never an empty table:** "No holdings yet as of …", "No stock holdings as of …: 100.00 % cash", "No losers between … and …". An end date before the start date (top movers) is checked in the app: it is the shape of a report request, not a data rule, and the SQL function would just return nothing.
+- **Percentages:** changes and returns carry a sign (`+12.34 %`); shares of a whole (sector allocation) don't (`54.30 %`).
+- **Display rounding = half up**, like PostgreSQL's `ROUND` and the price loader. Found by a test: Python formats `Decimal("12.345")` as `12.34` (round half to even, "banker's rounding"), so the app could have shown a different last digit than the database. `display.round2` now quantizes half up before formatting.
+- Shared prompts (price range, default date, ticker) moved to `app/menus/common.py`. Reports and portfolios import each other's menus, and a shared module avoids a circular import.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.

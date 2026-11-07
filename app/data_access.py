@@ -500,3 +500,31 @@ def targets_reached(conn, investor_id):
                latest_close, pct_above_target
         FROM fn_watchlist_targets_reached(%s)
     """, (investor_id,))
+
+
+# ---------------------------------------------------------------------
+# Reports (App 5): thin wrappers, exactly the analysis functions' output.
+# The ::type casts tell PostgreSQL the parameter types when a value is None.
+# ---------------------------------------------------------------------
+def monthly_returns(conn, portfolio_id, from_month=None, to_month=None):
+    """Analysis query 1: monthly return vs the S&P 500 (Modified Dietz)."""
+    return _fetch_all(conn, "SELECT * FROM fn_monthly_returns(%s::int, %s::date, %s::date)",
+                      (portfolio_id, from_month, to_month))
+
+
+def sector_allocation(conn, portfolio_id, as_of=None, include_cash=True):
+    """Analysis query 2: market value and % per sector (plus a Cash row)."""
+    return _fetch_all(conn, "SELECT * FROM fn_sector_allocation(%s::int, %s::date, %s::boolean)",
+                      (portfolio_id, as_of, include_cash))
+
+
+def holding_pl(conn, portfolio_id, as_of=None):
+    """Analysis query 4: realized / unrealized P/L per holding (open and closed)."""
+    return _fetch_all(conn, "SELECT * FROM fn_holding_pl(%s::int, %s::date)",
+                      (portfolio_id, as_of))
+
+
+def top_movers(conn, start, end=None, limit=5):
+    """Analysis query 3: top gainers and losers between two dates (ties kept)."""
+    return _fetch_all(conn, "SELECT * FROM fn_top_movers(%s::date, %s::date, %s::int)",
+                      (start, end, limit))
