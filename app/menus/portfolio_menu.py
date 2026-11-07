@@ -60,9 +60,11 @@ def ask_event_date(session, prompt, portfolio_id=None):
     return ask_date(prompt, default=default, no_default_reason="no prices are loaded yet")
 
 
-def ask_ticker(session):
-    """Ask for a ticker and show what we know about it. An unknown ticker or an
-    index is asked again right away (a hint: the database still decides).
+def ask_ticker(session, allow_index=False):
+    """Ask for a ticker and show what we know about it. An unknown ticker (or,
+    unless allow_index, an index) is asked again right away (a hint: the
+    database still decides). Watchlists use allow_index=True: watching ^GSPC
+    is fine, only trading it isn't.
     Returns the ticker in capitals, or None if the user pressed Enter (cancel)."""
     while True:
         ticker = ask_text("Ticker (Enter = cancel)", TICKER_MAX, required=False)
@@ -75,12 +77,15 @@ def ask_ticker(session):
         if info["company_name"] is None:
             print(f"  {ticker} is not in the stock list. Type another ticker, or Enter to cancel.")
             continue
-        if info["security_type"] == "INDEX":
+        if info["security_type"] == "INDEX" and not allow_index:
             print(f"  {ticker} is an index: it can be watched but not traded. "
                   "Type another ticker, or Enter to cancel.")
             continue
-        print(f"  {ticker}: {info['company_name']}, you hold {info['shares_held']} shares, "
-              f"latest price {info['last_price_date']}")
+        if session.portfolio_id is None:          # watchlists: no holdings to show
+            print(f"  {ticker}: {info['company_name']}, latest price {info['last_price_date']}")
+        else:
+            print(f"  {ticker}: {info['company_name']}, you hold {info['shares_held']} shares, "
+                  f"latest price {info['last_price_date']}")
         return ticker
 
 

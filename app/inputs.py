@@ -9,6 +9,11 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 # Year-month-day; month and day may have 1 or 2 digits: 2026-11-06 or 2026-11-6
+
+# A "sentinel": a unique object that means "the user asked to CLEAR the value".
+# It can't be confused with None ("keep") or with any number, because the only
+# way to get it is this exact object:  if answer is CLEAR: ...
+CLEAR = object()
 DATE_PATTERN = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
 
 
@@ -53,18 +58,21 @@ def ask_int(prompt, minimum=None, maximum=None, required=True):
         return number
 
 
-def ask_decimal(prompt, required=True):
+def ask_decimal(prompt, required=True, clear_word=None):
     """Ask for an amount of money or a price, returned as a Decimal (exact,
     unlike float). Accepts "1,000.50". At most 2 decimals, because the
     database stores money with 2 decimals and would silently round more.
     The sign and the limits are left to the database (CHECK constraints).
 
-    required=False: an empty answer returns None (e.g. "use the close").
+    required=False: an empty answer returns None (e.g. "use the close", "keep").
+    clear_word="none": typing that word returns CLEAR ("remove the value").
     """
     while True:
         answer = input(f"{prompt}: ").strip().replace(",", "")
         if answer == "" and not required:
             return None
+        if clear_word is not None and answer.lower() == clear_word:
+            return CLEAR
         try:
             amount = Decimal(answer)
         except InvalidOperation:          # Decimal("abc") raises this

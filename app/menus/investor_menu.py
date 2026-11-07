@@ -4,8 +4,9 @@ from app import data_access as da
 from app.display import print_table
 from app.errors import safe_call
 from app.inputs import ask_int, ask_text, confirm_typed, pause
-from app.menu import coming_soon, run_menu
+from app.menu import run_menu
 from app.menus.portfolio_menu import portfolios_menu
+from app.menus.watchlist_menu import watchlists_menu
 
 NAME_MAX = 100       # investor.name  VARCHAR(100)
 EMAIL_MAX = 254      # investor.email VARCHAR(254)
@@ -78,7 +79,7 @@ def choose_investor(session):
 def investor_home(session):
     run_menu(lambda s: f"Investor home: {s.investor_name}", [
         ("Portfolios", portfolios_menu),
-        ("Watchlists", coming_soon),    # App 4
+        ("Watchlists", watchlists_menu),
         ("Profile",    profile_menu),
     ], session)
     session.forget_investor()           # leaving the home = "log out"

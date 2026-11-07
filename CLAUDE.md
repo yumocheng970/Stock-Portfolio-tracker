@@ -165,7 +165,11 @@ Done so far:
   filter), edit shares/price, delete (type the trade id), audit log (newest first, status
   restorable/restored), restore (CALL restore_trade). errors.format_money_in_text adds 1,234.56
   separators to DB DETAIL amounts. Makefile psql runs with -P pager=off.
-  Roadmap: App 1 foundation+investor (DONE) | App 2 portfolio (DONE) | App 3 (DONE) |
+  App 4 (DONE): menus/watchlist_menu.py (Investor home item 2): list (items, targets reached),
+  create, choose -> home: list items (close, target, % vs target, reached), add (ask_ticker
+  allow_index=True: ^GSPC may be watched), edit target (Enter keep, 'none' -> inputs.CLEAR sentinel ->
+  NULL), remove, rename, delete (type the name). "Reached" always from fn_watchlist_targets_reached.
+  Roadmap: App 1 foundation+investor (DONE) | App 2 portfolio (DONE) | App 3 (DONE) | App 4 (DONE) |
   App 3 trade history/audit/restore | App 4 watchlists | App 5 reports (queries 1-5) |
   App 6 market data/admin | extras: PNG charts, CSV trade import (all-or-nothing), rebalance |
   final step before submission: friendly "unexpected error" message + log file instead of tracebacks.
@@ -175,8 +179,8 @@ Done so far:
   (PGOPTIONS default_transaction_read_only=on, start screen says READ-ONLY, 25006 friendly).
 - RULE (learned 2026-11-07): scripted / piped app runs on the REAL DB only with `make run-readonly`
   (or PGOPTIONS='-c default_transaction_read_only=on'). A desynced script once created a portfolio
-  there (removed; fingerprint restored; portfolio id sequence now at 31).
-Next: App 4 (watchlists)
+  there (removed; fingerprint restored; the user reseeded the real DB later that day).
+Next: App 5 (reports: analysis queries 1-5)
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

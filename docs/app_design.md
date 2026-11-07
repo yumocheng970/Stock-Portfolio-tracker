@@ -66,6 +66,11 @@ Portfolios (App 2): List my portfolios / Create portfolio / Choose portfolio →
 1 Summary, 2 Buy, 3 Sell, 4 Trade history, 5 Deposit cash, 6 Withdraw cash, 7 Rename portfolio,
 8 Delete portfolio.
 
+Watchlists (App 4): 1 List my watchlists (items, targets reached), 2 Create watchlist, 3 Choose
+watchlist → **Watchlist home**: 1 List items, 2 Add item (indexes allowed), 3 Edit target (Enter = keep,
+`none` = clear), 4 Remove item, 5 Rename watchlist, 6 Delete watchlist (type its name);
+4 Targets reached (all my watchlists, analysis query 5).
+
 Trade history (App 3): 1 List trades (optional ticker filter), 2 Edit a trade (shares/price),
 3 Delete a trade (type its ID), 4 Audit log, 5 Restore a deleted trade (`CALL restore_trade`).
 
@@ -81,7 +86,7 @@ can't be before the portfolio's latest event, so "today" would block trading unt
 | **App 1** (done) | Foundation (layers, errors, inputs, menu, display, `make run`) + investor CRUD |
 | **App 2** (done) | Portfolio: create / rename / delete, cash (deposit, withdraw), trades (buy, sell via `execute_trade`), holdings and balance |
 | **App 3** (done) | Trade history, edit / delete a trade, audit log, restore a deleted trade from trade_audit |
-| App 4 | Watchlists and items, targets reached (query 5) |
+| **App 4** (done) | Watchlists and items, targets reached (query 5) |
 | App 5 | Reports: monthly return vs S&P 500 (query 1), sector allocation (2), top movers (3), P/L per holding (4) |
 | App 6 | Market data (price history, refresh prices) and Admin (add a stock + download its prices, edit, delete) |
 | Extras | PNG charts (e.g. portfolio vs S&P 500); CSV trade import (all-or-nothing, one transaction); rebalance to target % |

@@ -73,6 +73,11 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **Restoring twice is refused by named errors** (`exec_trade_already_restored`, and `exec_restore_not_latest` for an older DELETE row after newer changes). The primary key on trade_id is the final guard if two sessions restore at the same time. A restore is an INSERT, so it writes no audit row; the DELETE row stays as history, and the app shows its status ("restorable" / "restored").
 - **Money in the database's DETAIL gets thousands separators** in the app (`-20366046.40` → `-20,366,046.40`, the same style as the tables). A regex matches only numbers with exactly 2 decimals, so dates, ids and share counts are unchanged, and `Decimal` keeps it exact.
 
+### Python CLI app, App 4: watchlists
+- **One definition of "target reached".** The watchlist list (the "targets reached" count), the item list (the "reached" column) and the "Targets reached" screen all use `fn_watchlist_targets_reached` (analysis query 5: latest close on or before today >= target). The app and the report can't disagree, and a test compares the screen's rows with the function.
+- **Watching an index is allowed, trading it isn't.** The same ticker prompt is reused with `allow_index=True` for watchlists, so ^GSPC can be added. The `trg_trade_not_index` rule applies only to trades.
+- **Three answers for an optional value:** Enter = keep, a number = set, `none` = clear (NULL). The input helper returns a unique *sentinel* object `CLEAR` for "clear", so it can't be confused with `None` (keep) or with a number. A negative or zero target still goes to the database, which refuses it (`chk_watchlist_target_positive`): a hint, not a rule.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.

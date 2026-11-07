@@ -383,3 +383,120 @@ def restore_trade(conn, portfolio_id, audit_id):
             raise NotFoundError(f"This portfolio has no audit row {audit_id}.")
         row = _fetch_one(conn, "CALL restore_trade(%s, NULL)", (audit_id,))
         return get_portfolio_trade(conn, portfolio_id, row["p_trade_id"])
+
+
+# ---------------------------------------------------------------------
+# watchlist / watchlist_item (App 4)
+# Functions take the investor_id or watchlist_id they act on, and filter by
+# it, so another investor's watchlist can't be touched from this menu.
+# "Reached" always comes from fn_watchlist_targets_reached (analysis query 5),
+# so the app and the report use one definition: latest close >= target.
+# ---------------------------------------------------------------------
+def list_watchlists(conn, investor_id):
+    """The investor's watchlists with the number of items and of targets reached."""
+    return _fetch_all(conn, """
+        SELECT w.watchlist_id, w.watchlist_name, w.created_date,
+               (SELECT count(*) FROM watchlist_item wi WHERE wi.watchlist_id = w.watchlist_id) AS items,
+               COALESCE(r.reached, 0) AS reached
+        FROM watchlist w
+        LEFT JOIN (SELECT f.watchlist_id, count(*) AS reached
+                   FROM fn_watchlist_targets_reached(%(id)s) f
+                   GROUP BY f.watchlist_id) r ON r.watchlist_id = w.watchlist_id
+        WHERE w.investor_id = %(id)s
+        ORDER BY w.watchlist_id
+    """, {"id": investor_id})
+
+
+def create_watchlist(conn, investor_id, name):
+    row = _fetch_one(conn, """
+        INSERT INTO watchlist (investor_id, watchlist_name) VALUES (%s, %s)
+        RETURNING watchlist_id
+    """, (investor_id, name.strip()))
+    return row["watchlist_id"]
+
+
+def rename_watchlist(conn, investor_id, watchlist_id, name):
+    row = _fetch_one(conn, """
+        UPDATE watchlist SET watchlist_name = %s
+        WHERE investor_id = %s AND watchlist_id = %s
+        RETURNING watchlist_id
+    """, (name.strip(), investor_id, watchlist_id))
+    if row is None:
+        raise NotFoundError(f"You have no watchlist {watchlist_id}.")
+
+
+def delete_watchlist(conn, investor_id, watchlist_id):
+    """Delete a watchlist; its items cascade. Returns how many items went with it."""
+    with conn.transaction():
+        items = _fetch_one(conn, "SELECT count(*) AS n FROM watchlist_item WHERE watchlist_id = %s",
+                           (watchlist_id,))["n"]
+        row = _fetch_one(conn, """
+            DELETE FROM watchlist WHERE investor_id = %s AND watchlist_id = %s
+            RETURNING watchlist_id
+        """, (investor_id, watchlist_id))
+        if row is None:
+            raise NotFoundError(f"You have no watchlist {watchlist_id}.")
+        return items
+
+
+def list_watchlist_items(conn, watchlist_id):
+    """Items with company, latest close (on or before today), target,
+    % from target and reached (NULL when there is no target)."""
+    return _fetch_all(conn, """
+        SELECT wi.ticker, s.company_name, c.price_date AS close_date, c.close, wi.target_price,
+               ROUND(100 * (c.close - wi.target_price) / wi.target_price, 2) AS pct_vs_target,
+               CASE WHEN wi.target_price IS NULL THEN NULL
+                    ELSE r.ticker IS NOT NULL END AS reached
+        FROM watchlist_item wi
+        JOIN watchlist w ON w.watchlist_id = wi.watchlist_id
+        JOIN stock s     ON s.ticker = wi.ticker
+        LEFT JOIN LATERAL (
+            SELECT dp.price_date, dp.close FROM daily_price dp
+            WHERE dp.ticker = wi.ticker AND dp.price_date <= CURRENT_DATE
+            ORDER BY dp.price_date DESC
+            LIMIT 1
+        ) c ON true
+        LEFT JOIN fn_watchlist_targets_reached(w.investor_id) r
+               ON r.watchlist_id = wi.watchlist_id AND r.ticker = wi.ticker
+        WHERE wi.watchlist_id = %s
+        ORDER BY wi.ticker
+    """, (watchlist_id,))
+
+
+def add_watchlist_item(conn, watchlist_id, ticker, target_price=None):
+    """Add a ticker (trimmed, upper case) with an optional target price."""
+    row = _fetch_one(conn, """
+        INSERT INTO watchlist_item (watchlist_id, ticker, target_price)
+        VALUES (%s, upper(btrim(%s)), %s)
+        RETURNING ticker
+    """, (watchlist_id, ticker, target_price))
+    return row["ticker"]
+
+
+def set_item_target(conn, watchlist_id, ticker, target_price):
+    """Set the target price; None clears it (no target)."""
+    row = _fetch_one(conn, """
+        UPDATE watchlist_item SET target_price = %s
+        WHERE watchlist_id = %s AND ticker = upper(btrim(%s))
+        RETURNING ticker
+    """, (target_price, watchlist_id, ticker))
+    if row is None:
+        raise NotFoundError(f"{ticker.strip().upper()} is not on this watchlist.")
+
+
+def remove_watchlist_item(conn, watchlist_id, ticker):
+    row = _fetch_one(conn, """
+        DELETE FROM watchlist_item WHERE watchlist_id = %s AND ticker = upper(btrim(%s))
+        RETURNING ticker
+    """, (watchlist_id, ticker))
+    if row is None:
+        raise NotFoundError(f"{ticker.strip().upper()} is not on this watchlist.")
+
+
+def targets_reached(conn, investor_id):
+    """All of the investor's items whose latest close >= target (analysis query 5)."""
+    return _fetch_all(conn, """
+        SELECT watchlist_id, watchlist_name, ticker, target_price, close_date,
+               latest_close, pct_above_target
+        FROM fn_watchlist_targets_reached(%s)
+    """, (investor_id,))
