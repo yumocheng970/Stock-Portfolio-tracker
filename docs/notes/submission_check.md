@@ -71,10 +71,11 @@ With these workarounds, Run 1 still worked end to end (restore: 1,155 trades; th
 
 ## 4. The Task 4 package / 提交包: `make package` → `cheng_project.zip`
 **EN:**
-- Built with `git archive --prefix=cheng_project/ HEAD`, minus `analytics_cpp/` and `CLAUDE.md`.
+- Built with `git archive --prefix=cheng_project/ HEAD`, minus `analytics_cpp/`, `CLAUDE.md` and everything in `docs/` except `docs/app_design.md`.
 - Only **committed** files can be in it, so `.env`, `logs/`, `charts/` and `__pycache__` (all git-ignored) can't get in, and `.git` is never part of an archive. The target warns if there are uncommitted changes.
 - **CLAUDE.md is excluded** (your decision, changed after the first build: it holds working notes for the AI assistant, not part of building or running the project). It stays in the git repository.
-- **Contents** (117 files, **about 1.05 MB** zipped; listed again after the change: no CLAUDE.md):
+- **docs/ in the zip: only `docs/app_design.md`** (your decision, after the CLAUDE.md change). `docs/notes/` (study notes and report drafts, including this file) stay in the git repository only. Checked before the change: no file that stays in the zip (README, app_design.md, data/samples/README.md, code comments, Makefile, the dump) refers to an excluded file.
+- **Contents** (96 files, **about 0.91 MB** zipped; listed again after the change):
 
 | Files | Path |
 |---|---|
@@ -82,19 +83,20 @@ With these workarounds, Run 1 still worked end to end (restore: 1,155 trades; th
 | 23 | `app/` |
 | 7 | `etl/` |
 | 32 | `db/` (schema, views, programmability, analysis, tests, `dump/cheng_final_project.sql`) |
-| 22 | `docs/` (including these notes) |
+| 1 | `docs/app_design.md` (the only file from `docs/`) |
 | 6 | `data/` (`tickers.csv`, `samples/`) |
 | 20 | `tests/` |
 
-- **Secret scan:** no `.env`, `logs/`, `charts/`, `__pycache__`, `.git`, `analytics_cpp` or `CLAUDE.md` entries. No line sets `DB_PASSWORD=` (or `password="…"`) to a value. The local `.env` has no password at all (peer login), so there is nothing to leak.
+- **Secret scan:** no `.env`, `logs/`, `charts/`, `__pycache__`, `.git`, `analytics_cpp`, `CLAUDE.md` or `docs/notes/` entries. No line sets `DB_PASSWORD=` (or `password="…"`) to a value. The local `.env` has no password at all (peer login), so there is nothing to leak.
 - The zip is git-ignored (`cheng_project.zip`). Rebuild it right before uploading: `make dump && make verify-dump`, commit, `make package`.
 
 **中文：**
-- 用 `git archive` 从 HEAD 生成，排除 `analytics_cpp/` 和 `CLAUDE.md`。
+- 用 `git archive` 从 HEAD 生成，排除 `analytics_cpp/`、`CLAUDE.md`，以及 `docs/` 中除 `docs/app_design.md` 以外的全部文件。
 - 只会包含**已提交**的文件，所以 `.env`、`logs/`、`charts/`、`__pycache__`（都被 git 忽略）不可能进入压缩包，`.git` 也从来不在 archive 里。有未提交改动时会给出警告。
 - **不包含 CLAUDE.md**（你后来改变了决定：它是给 AI 助手的工作说明，不属于项目的构建或运行）。它仍保留在 git 仓库中。
-- 117 个文件，压缩后约 1.05 MB，内容见上表（已重新列出，确认没有 CLAUDE.md）。
-- **敏感信息扫描：** 没有 `.env`、日志、图表、缓存、`.git`、`analytics_cpp`、`CLAUDE.md`；没有任何一行给 `DB_PASSWORD` 赋了值；本地 `.env` 本身就没有密码（peer 登录）。
+- **docs/ 只保留 `docs/app_design.md`**（你的决定）：`docs/notes/`（学习笔记和报告草稿，包括本文件）只留在 git 仓库里。修改前检查过：留在压缩包里的文件（README、app_design.md、data/samples/README.md、代码注释、Makefile、dump）都没有引用被排除的文件。
+- 96 个文件，压缩后约 0.91 MB，内容见上表（修改后重新列出）。
+- **敏感信息扫描：** 没有 `.env`、日志、图表、缓存、`.git`、`analytics_cpp`、`CLAUDE.md`、`docs/notes/`；没有任何一行给 `DB_PASSWORD` 赋了值；本地 `.env` 本身就没有密码（peer 登录）。
 - 压缩包被 git 忽略。上传前请重新生成：`make dump && make verify-dump`，提交，然后 `make package`。
 
 ## 5. Commits in this step / 本步提交

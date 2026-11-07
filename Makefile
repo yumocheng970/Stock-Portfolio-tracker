@@ -13,7 +13,7 @@
 #   make reseed         delete ALL users + audit rows, reset ids, seed again
 #   make check-sample-data  read-only checks on the sample data
 #   make dump           write db/dump/cheng_final_project.sql from portfolio_tracker
-#   make package       build cheng_project.zip (committed files, without analytics_cpp/ and CLAUDE.md)
+#   make package       build cheng_project.zip (committed files; docs/ only app_design.md; no analytics_cpp/, CLAUDE.md)
 #   make verify-dump    restore the dump into a NEW temporary database, compare it
 #                       with portfolio_tracker, run behaviour checks, drop it again
 #
@@ -100,11 +100,15 @@ verify-dump:
 
 # Task 4 package: every COMMITTED file (git archive), so .env, logs/, charts/,
 # __pycache__ (all git-ignored) can't get in, and .git is never part of an archive.
-# Left out: analytics_cpp/ (an unbuilt placeholder) and CLAUDE.md (working notes
-# for the AI assistant, not part of building or running the project).
+# Left out: analytics_cpp/ (an unbuilt placeholder), CLAUDE.md (working notes for
+# the AI assistant) and everything in docs/ except docs/app_design.md (docs/notes/
+# are my study notes and report drafts, not part of building or running the project).
+# The file list is HEAD's files minus those, plus docs/app_design.md by name: a git
+# exclude pathspec can't be re-included, so the list is built with grep instead.
 # Commit first: uncommitted changes are NOT in the zip (a warning says so).
+PACKAGE_FILES = $$(git ls-tree -r --name-only HEAD | grep -vE '^(analytics_cpp/|CLAUDE\.md$$|docs/)') docs/app_design.md
 package:
 	@git diff --quiet HEAD || echo "WARNING: uncommitted changes are not in the zip (commit first)"
-	git archive --format=zip --prefix=cheng_project/ -o cheng_project.zip HEAD -- . ':(exclude)analytics_cpp' ':(exclude)CLAUDE.md'
+	git archive --format=zip --prefix=cheng_project/ -o cheng_project.zip HEAD -- $(PACKAGE_FILES)
 	@python3 -c "import zipfile; z = zipfile.ZipFile('cheng_project.zip'); print(len(z.namelist()), 'entries')"
 	@ls -l cheng_project.zip
