@@ -118,6 +118,13 @@ Done so far:
   db/tests/check_prices.sql (read-only checks on the real DB, `make check-prices`), Makefile
 - db/programmability/06_record_cash_transaction.sql: PROCEDURE record_cash_transaction(portfolio_id,
   txn_type, amount, txn_date, INOUT cash_txn_id), same style as execute_trade (exec_missing_input).
+- db/programmability/07_restore_trade.sql: PROCEDURE restore_trade(audit_id, INOUT trade_id): re-inserts
+  a deleted trade from its trade_audit DELETE row with its ORIGINAL trade_id (OVERRIDING SYSTEM VALUE),
+  errors exec_audit_not_found / exec_restore_not_delete / exec_trade_already_restored /
+  exec_restore_not_latest. DECIDED: "exact-replay exemption": fn_event_date_order skips ONLY
+  trg_date_before_latest when NEW equals the trade's LATEST audit row and that row is a DELETE
+  (data-defined, no session flag). Start date, trg_trade_validate, FK and history replay still run.
+  A restore adds no audit row.
 - ETL B (sample users): etl/simulate.py (pure; walks each portfolio forward: BUY only what cash allows,
   SELL only what is held, cash before trades same day), etl/seed_sample_data.py (seed 5200, Faker
   40.40.0, SIM_END 2026-10-30; 15 investors, 1-3 portfolios, 20-60 trades via CALL execute_trade with
@@ -154,7 +161,11 @@ Done so far:
   Hints (cash, shares held, latest allowed date, day's low/high/close) are SHOWN, never enforced.
   DECIDED: every date prompt's Enter = GREATEST(latest price date, portfolio's latest allowed
   date) (da.default_event_date), with "prices: first to last" shown; NOT today (would block trading).
-  Roadmap: App 1 foundation+investor (DONE) | App 2 portfolio (DONE) |
+  App 3 (DONE): menus/trade_history_menu.py (Portfolio home item 4): list (date, trade_id; ticker
+  filter), edit shares/price, delete (type the trade id), audit log (newest first, status
+  restorable/restored), restore (CALL restore_trade). errors.format_money_in_text adds 1,234.56
+  separators to DB DETAIL amounts. Makefile psql runs with -P pager=off.
+  Roadmap: App 1 foundation+investor (DONE) | App 2 portfolio (DONE) | App 3 (DONE) |
   App 3 trade history/audit/restore | App 4 watchlists | App 5 reports (queries 1-5) |
   App 6 market data/admin | extras: PNG charts, CSV trade import (all-or-nothing), rebalance |
   final step before submission: friendly "unexpected error" message + log file instead of tracebacks.
@@ -165,7 +176,7 @@ Done so far:
 - RULE (learned 2026-11-07): scripted / piped app runs on the REAL DB only with `make run-readonly`
   (or PGOPTIONS='-c default_transaction_read_only=on'). A desynced script once created a portfolio
   there (removed; fingerprint restored; portfolio id sequence now at 31).
-Next: App 3 (trade history, edit/delete trade, audit log, restore a deleted trade)
+Next: App 4 (watchlists)
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

@@ -135,6 +135,16 @@ $$;
 -- ---------------------------------------------------------------------
 -- BEFORE INSERT on trade and cash_transaction: date order.
 -- One function for both tables; TG_TABLE_NAME says which one fired it.
+--
+-- One exemption, for restore_trade() (07_restore_trade.sql): re-inserting
+-- a deleted trade EXACTLY as it was (same trade_id and same values as that
+-- trade's LATEST trade_audit row, which is a DELETE) skips only the
+-- "before the latest event" check. The start-date check, the BEFORE
+-- validation trigger (price range, no INDEX), the FK and the AFTER
+-- history replay (cash / shares never negative) all still run.
+-- The exemption is defined by the data, not by a session flag, so no
+-- other insert can claim it: a normal insert gets a NEW trade_id from the
+-- identity, and no audit row has that id.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION fn_event_date_order()
 RETURNS trigger
@@ -144,6 +154,7 @@ DECLARE
     v_date        DATE;
     v_start_date  portfolio.start_date%TYPE;
     v_latest      DATE;
+    v_is_restore  BOOLEAN := false;
 BEGIN
     -- IF, not CASE: NEW.trade_date doesn't exist on cash_transaction,
     -- and only the branch that runs is evaluated.
@@ -180,7 +191,22 @@ BEGIN
                      WHERE portfolio_id = NEW.portfolio_id))
     INTO v_latest;
 
-    IF v_date < v_latest THEN
+    -- Restore of a deleted trade? (Inside IF: NEW.trade_id doesn't exist
+    -- on cash_transaction.) The row-value comparison (a, b) = (c, d)
+    -- compares all six columns at once.
+    IF TG_TABLE_NAME = 'trade' THEN
+        SELECT a.operation = 'DELETE'
+               AND (a.portfolio_id, a.ticker, a.trade_type, a.shares, a.price, a.trade_date)
+                 = (NEW.portfolio_id, NEW.ticker, NEW.trade_type, NEW.shares, NEW.price, NEW.trade_date)
+        INTO v_is_restore
+        FROM trade_audit a
+        WHERE a.trade_id = NEW.trade_id
+        ORDER BY a.audit_id DESC          -- the trade's latest audit row
+        LIMIT 1;
+        v_is_restore := COALESCE(v_is_restore, false);   -- no audit row: not a restore
+    END IF;
+
+    IF v_date < v_latest AND NOT v_is_restore THEN
         RAISE EXCEPTION 'Date % is before the latest event in this portfolio', v_date
             USING ERRCODE    = 'check_violation',
                   CONSTRAINT = 'trg_date_before_latest',

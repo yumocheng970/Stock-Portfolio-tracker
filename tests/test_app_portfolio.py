@@ -89,7 +89,7 @@ def test_buy_with_explicit_price_outside_range_refused(setup):
 def test_overdraw_message_includes_detail_amount(setup):
     message = refused(da.execute_trade, setup["conn"], setup["portfolio_id"], "PFT1", "BUY", 1000, D1)
     assert message.startswith(MESSAGES["trg_cash_never_negative"])
-    assert "Cash would be -90000.00 on 2025-03-03" in message        # 10,000 - 1000 x 100
+    assert "Cash would be -90,000.00 on 2025-03-03" in message       # 10,000 - 1000 x 100 (App 3: 1,234.56 style)
 
 
 def test_sell_more_than_held_refused(setup):

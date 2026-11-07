@@ -29,6 +29,7 @@ SET client_min_messages = warning;
 \ir programmability/04_balance_checks.sql
 \ir programmability/05_execute_trade.sql
 \ir programmability/06_record_cash_transaction.sql
+\ir programmability/07_restore_trade.sql
 
 -- Analysis queries (they use the views and fn_portfolio_history)
 \ir analysis/00_indexes.sql

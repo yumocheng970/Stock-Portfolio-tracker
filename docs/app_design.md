@@ -63,7 +63,11 @@ Main
 Items that aren't built yet print "coming in a later step".
 
 Portfolios (App 2): List my portfolios / Create portfolio / Choose portfolio → **Portfolio home**:
-1 Summary, 2 Buy, 3 Sell, 4 Deposit cash, 5 Withdraw cash, 6 Rename portfolio, 7 Delete portfolio.
+1 Summary, 2 Buy, 3 Sell, 4 Trade history, 5 Deposit cash, 6 Withdraw cash, 7 Rename portfolio,
+8 Delete portfolio.
+
+Trade history (App 3): 1 List trades (optional ticker filter), 2 Edit a trade (shares/price),
+3 Delete a trade (type its ID), 4 Audit log, 5 Restore a deleted trade (`CALL restore_trade`).
 
 **Date prompts (all of them):** Enter = the latest price date, or the portfolio's latest allowed
 date if that is later. The prompt shows that default and the available price range
@@ -76,7 +80,7 @@ can't be before the portfolio's latest event, so "today" would block trading unt
 |---|---|
 | **App 1** (done) | Foundation (layers, errors, inputs, menu, display, `make run`) + investor CRUD |
 | **App 2** (done) | Portfolio: create / rename / delete, cash (deposit, withdraw), trades (buy, sell via `execute_trade`), holdings and balance |
-| App 3 | Trade history, edit / delete a trade, audit log, restore a deleted trade from trade_audit |
+| **App 3** (done) | Trade history, edit / delete a trade, audit log, restore a deleted trade from trade_audit |
 | App 4 | Watchlists and items, targets reached (query 5) |
 | App 5 | Reports: monthly return vs S&P 500 (query 1), sector allocation (2), top movers (3), P/L per holding (4) |
 | App 6 | Market data (price history, refresh prices) and Admin (add a stock + download its prices, edit, delete) |

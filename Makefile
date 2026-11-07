@@ -25,7 +25,8 @@ DUMP_FILE  = db/dump/cheng_final_project.sql
 # Temporary database for verify-dump; created and dropped by that target only
 RESTORE_DB = portfolio_tracker_restore_check
 PYTHON  ?= python
-PSQL     = psql -X -q -v ON_ERROR_STOP=1
+# -P pager=off: never stop in a pager (less) on long test / check output
+PSQL     = psql -X -q -v ON_ERROR_STOP=1 -P pager=off
 
 .PHONY: test test-db test-sql test-py apply-db load-prices check-prices seed reseed check-sample-data \
         dump verify-dump run run-test-db run-readonly

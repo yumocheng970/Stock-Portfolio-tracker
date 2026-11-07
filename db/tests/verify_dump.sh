@@ -20,7 +20,7 @@ set -euo pipefail
 real_db=$1
 temp_db=$2
 dump=$3
-PSQL="psql -X -q -v ON_ERROR_STOP=1"
+PSQL="psql -X -q -v ON_ERROR_STOP=1 -P pager=off"
 
 work=$(mktemp -d)
 cleanup() { dropdb --if-exists "$temp_db"; rm -rf "$work"; }

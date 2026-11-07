@@ -11,6 +11,9 @@ new constraint without a message here makes the tests fail.
 safe_call() is what the menus use: it runs a data-access function and, if
 the database refuses, prints the friendly message instead of a traceback.
 """
+import re
+from decimal import Decimal
+
 import psycopg
 
 from app.data_access import NotFoundError
@@ -99,13 +102,20 @@ MESSAGES = {
     # --- raised by the procedures execute_trade / record_cash_transaction --
     "exec_missing_input":  "Some required input is missing.",
     "exec_no_price_data":  "There is no price for that ticker on that date (choose a trading day).",
+
+    # --- raised by restore_trade ---------------------------------------------
+    "exec_audit_not_found":        "There is no such audit row.",
+    "exec_restore_not_delete":     "Only a DELETE row of the audit log can be restored.",
+    "exec_trade_already_restored": "That trade is already back in the portfolio.",
+    "exec_restore_not_latest":     "That trade was changed again later; restore it from its newest DELETE row.",
 }
 
 # For these names the database's DETAIL already says everything the message
 # says, only more precisely ("No price for ZZZZ on 2026-10-30 (not a trading
 # day, or unknown ticker)."), so the DETAIL is shown alone, as one clear line.
 # The MESSAGES text is the fallback when there is no DETAIL.
-DETAIL_REPLACES_MESSAGE = {"exec_no_price_data", "exec_missing_input"}
+DETAIL_REPLACES_MESSAGE = {"exec_no_price_data", "exec_missing_input", "exec_audit_not_found",
+                           "exec_trade_already_restored", "exec_restore_not_latest"}
 
 # Errors without a constraint name, by SQLSTATE (the 5-character error code)
 SQLSTATE_MESSAGES = {
@@ -121,6 +131,18 @@ SQLSTATE_MESSAGES = {
 }
 
 
+# A money amount in a DETAIL text: optional minus, digits, a point, exactly 2 decimals
+# ("-20366046.40", "107.00"). Dates (2025-03-04), ids and share counts don't match.
+MONEY_IN_TEXT = re.compile(r"-?\d+\.\d{2}\b")
+
+
+def format_money_in_text(text):
+    """'Cash would be -20366046.40 on ...' -> 'Cash would be -20,366,046.40 on ...',
+    the same 1,234.56 style as the app's tables."""
+    # Decimal, not float: exact for any size of amount
+    return MONEY_IN_TEXT.sub(lambda match: f"{Decimal(match.group()):,.2f}", text)
+
+
 def friendly_message(error):
     """The sentence to show the user for any exception from a database action."""
     if isinstance(error, NotFoundError):
@@ -130,14 +152,15 @@ def friendly_message(error):
 
     diag = error.diag
     name = diag.constraint_name
-    if name in DETAIL_REPLACES_MESSAGE and diag.message_detail:
-        return diag.message_detail
+    detail = format_money_in_text(diag.message_detail) if diag.message_detail else None
+    if name in DETAIL_REPLACES_MESSAGE and detail:
+        return detail
     if name in MESSAGES:
         message = MESSAGES[name]
         # Trigger errors carry useful numbers in DETAIL, e.g.
         # "Cash would be -120.00 on 2025-03-04, after trade 17 (BUY 10 AAPL @ 230.00)."
-        if name.startswith(("trg_", "exec_")) and diag.message_detail:
-            message += " " + diag.message_detail
+        if name.startswith(("trg_", "exec_")) and detail:
+            message += " " + detail
         return message
     if diag.sqlstate in SQLSTATE_MESSAGES:
         column = (diag.column_name or "A value").replace("_", " ")

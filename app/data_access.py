@@ -296,3 +296,90 @@ def record_cash_transaction(conn, portfolio_id, txn_type, amount, day):
     row = _fetch_one(conn, "CALL record_cash_transaction(%s, %s, %s, %s, NULL)",
                      (portfolio_id, txn_type, amount, day))
     return row["p_cash_txn_id"]
+
+
+# ---------------------------------------------------------------------
+# Trade history, edit / delete, audit log, restore (App 3)
+# Every function takes the portfolio_id too, so a trade or audit row of
+# another portfolio can never be touched through this portfolio's menu.
+# ---------------------------------------------------------------------
+def list_trades(conn, portfolio_id, ticker=None):
+    """The portfolio's trades in history order (date, then trade_id: the
+    order the balance replay uses for trades). ticker None = all tickers."""
+    return _fetch_all(conn, """
+        SELECT trade_id, trade_date, trade_type, ticker, shares, price,
+               shares * price AS amount
+        FROM trade
+        WHERE portfolio_id = %(id)s
+          AND (%(ticker)s::text IS NULL OR ticker = upper(btrim(%(ticker)s::text)))
+        ORDER BY trade_date, trade_id
+    """, {"id": portfolio_id, "ticker": ticker})
+
+
+def get_portfolio_trade(conn, portfolio_id, trade_id):
+    """One trade of this portfolio, with that day's low/high (None if not found)."""
+    return _fetch_one(conn, """
+        SELECT t.trade_id, t.trade_date, t.trade_type, t.ticker, t.shares, t.price,
+               t.shares * t.price AS amount, dp.low, dp.high
+        FROM trade t
+        LEFT JOIN daily_price dp ON dp.ticker = t.ticker AND dp.price_date = t.trade_date
+        WHERE t.portfolio_id = %s AND t.trade_id = %s
+    """, (portfolio_id, trade_id))
+
+
+def update_trade(conn, portfolio_id, trade_id, shares=None, price=None):
+    """Change shares and/or price (None = keep). The triggers check the price
+    range, write the audit row and replay the history; a refusal rolls back."""
+    row = _fetch_one(conn, """
+        UPDATE trade
+        SET shares = COALESCE(%s, shares),
+            price  = COALESCE(%s, price)
+        WHERE portfolio_id = %s AND trade_id = %s
+        RETURNING trade_id
+    """, (shares, price, portfolio_id, trade_id))
+    if row is None:
+        raise NotFoundError(f"This portfolio has no trade {trade_id}.")
+
+
+def delete_trade(conn, portfolio_id, trade_id):
+    """Delete one trade (copied to trade_audit by the trigger; history replayed)."""
+    row = _fetch_one(conn, """
+        DELETE FROM trade WHERE portfolio_id = %s AND trade_id = %s
+        RETURNING trade_id
+    """, (portfolio_id, trade_id))
+    if row is None:
+        raise NotFoundError(f"This portfolio has no trade {trade_id}.")
+
+
+def audit_log(conn, portfolio_id, only_deletes=False):
+    """This portfolio's trade_audit rows (only_deletes=True: just the DELETE
+    rows, for choosing a trade to restore), newest first, with a status for
+    DELETE rows: 'restorable' (the trade is gone and this is its newest audit
+    row) or 'restored' (the trade is back). Same rules as restore_trade()."""
+    return _fetch_all(conn, """
+        SELECT a.audit_id, a.operation, a.changed_at, a.changed_by, a.trade_id,
+               a.trade_date, a.trade_type, a.ticker, a.shares, a.price,
+               CASE
+                   WHEN a.operation <> 'DELETE' THEN ''
+                   WHEN a.audit_id <> (SELECT max(b.audit_id) FROM trade_audit b
+                                       WHERE b.trade_id = a.trade_id) THEN ''
+                   WHEN EXISTS (SELECT 1 FROM trade t WHERE t.trade_id = a.trade_id) THEN 'restored'
+                   ELSE 'restorable'
+               END AS status
+        FROM trade_audit a
+        WHERE a.portfolio_id = %s
+          AND (NOT %s OR a.operation = 'DELETE')
+        ORDER BY a.audit_id DESC
+    """, (portfolio_id, only_deletes))
+
+
+def restore_trade(conn, portfolio_id, audit_id):
+    """CALL restore_trade(): put a deleted trade back as it was (original
+    trade_id, date, ticker, shares, price). Returns the restored trade row."""
+    with conn.transaction():
+        owner = _fetch_one(conn, "SELECT portfolio_id FROM trade_audit WHERE audit_id = %s",
+                           (audit_id,))
+        if owner is None or owner["portfolio_id"] != portfolio_id:
+            raise NotFoundError(f"This portfolio has no audit row {audit_id}.")
+        row = _fetch_one(conn, "CALL restore_trade(%s, NULL)", (audit_id,))
+        return get_portfolio_trade(conn, portfolio_id, row["p_trade_id"])

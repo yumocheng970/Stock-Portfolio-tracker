@@ -13,6 +13,7 @@ from app.display import format_value, print_table
 from app.errors import safe_call
 from app.inputs import ask_date, ask_decimal, ask_int, ask_text, confirm_typed, pause
 from app.menu import run_menu
+from app.menus.trade_history_menu import trade_history_menu
 
 NAME_MAX = 100          # portfolio.portfolio_name VARCHAR(100)
 TICKER_MAX = 10         # stock.ticker VARCHAR(10)
@@ -139,6 +140,7 @@ def portfolio_home(session):
         ("Summary",          summary),
         ("Buy",              lambda s: trade(s, "BUY")),
         ("Sell",             lambda s: trade(s, "SELL")),
+        ("Trade history",    trade_history_menu),
         ("Deposit cash",     lambda s: cash(s, "DEPOSIT")),
         ("Withdraw cash",    lambda s: cash(s, "WITHDRAWAL")),
         ("Rename portfolio", rename),

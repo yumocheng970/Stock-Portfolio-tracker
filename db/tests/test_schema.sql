@@ -1192,6 +1192,112 @@ SELECT pg_temp.check('rcash: rejected CALLs left no rows (Rcash Errors has none,
     AND (SELECT count(*) = 2 FROM cash_transaction WHERE portfolio_id = pg_temp.pf('Rcash Main')));
 
 -- =====================================================================
+-- restore_trade() + the date-order exemption (db/programmability/07_restore_trade.sql)
+-- Stock RST1, prices 2025-04-01 .. 04-04: low 90, high 110, close 100.
+-- Portfolio Rst Main (1000 cash): BUY 2 @100 (d1), BUY 3 @100 (d2);
+-- then trade d1 is deleted and a deposit is made on d3 (the latest event),
+-- so restoring the d1 trade must pass the date-order rule.
+-- =====================================================================
+SELECT pg_temp.expect_ok('restore: setup stock RST1, portfolios Rst Main / Rst Spent',
+    $q$
+    INSERT INTO stock (ticker, company_name) VALUES ('RST1', 'Restore Test');
+    INSERT INTO daily_price
+    SELECT 'RST1', d::date, 100, 110, 90, 100, 1000
+    FROM generate_series('2025-04-01'::date, '2025-04-04'::date, '1 day') AS d;
+    INSERT INTO portfolio (investor_id, portfolio_name, starting_cash, start_date)
+    SELECT pg_temp.inv('alice@example.com'), v.name, 1000, '2025-04-01'
+    FROM (VALUES ('Rst Main'), ('Rst Spent')) AS v(name);
+    INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date) VALUES
+        (pg_temp.pf('Rst Main'), 'RST1', 'BUY', 2, 100, '2025-04-01'),
+        (pg_temp.pf('Rst Main'), 'RST1', 'BUY', 3, 100, '2025-04-02');
+    $q$);
+
+-- CALL arguments can't contain subqueries, so the tests build the CALL text
+-- with format('CALL restore_trade(%s, NULL)', <audit id>).
+CREATE TEMP TABLE rst AS
+SELECT (SELECT trade_id FROM trade WHERE portfolio_id = pg_temp.pf('Rst Main')
+        AND trade_date = '2025-04-01') AS d1_trade,
+       (SELECT cash_balance FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Rst Main')) AS cash_before;
+
+SELECT pg_temp.expect_ok('restore: delete the d1 trade, then deposit 50 on d3 (latest event)',
+    $q$
+    DELETE FROM trade WHERE trade_id = (SELECT d1_trade FROM rst);
+    INSERT INTO cash_transaction (portfolio_id, txn_type, amount, txn_date)
+    VALUES (pg_temp.pf('Rst Main'), 'DEPOSIT', 50, '2025-04-03');
+    $q$);
+SELECT pg_temp.expect_error('restore: a NEW trade dated d1 is still rejected (exemption is narrow)',
+    $q$ INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+        VALUES (pg_temp.pf('Rst Main'), 'RST1', 'BUY', 2, 100, '2025-04-01') $q$,
+    'trg_date_before_latest');
+SELECT pg_temp.expect_error('restore: re-insert with the old id but DIFFERENT values is rejected',
+    $q$ INSERT INTO trade (trade_id, portfolio_id, ticker, trade_type, shares, price, trade_date)
+        OVERRIDING SYSTEM VALUE
+        VALUES ((SELECT d1_trade FROM rst), pg_temp.pf('Rst Main'), 'RST1', 'BUY', 1, 100, '2025-04-01') $q$,
+    'trg_date_before_latest');
+SELECT pg_temp.expect_error('restore: unknown audit id -> exec_audit_not_found',
+    $q$ CALL restore_trade(-1, NULL) $q$, 'exec_audit_not_found');
+SELECT pg_temp.expect_error('restore: NULL audit id -> exec_missing_input',
+    $q$ CALL restore_trade(NULL, NULL) $q$, 'exec_missing_input');
+SELECT pg_temp.expect_ok('restore: CALL restore_trade on the DELETE row',
+    format('CALL restore_trade(%s, NULL)',
+        (SELECT max(audit_id) FROM trade_audit
+                            WHERE trade_id = (SELECT d1_trade FROM rst))));
+SELECT pg_temp.check('  -> trade back with its ORIGINAL id, date, ticker, shares and price',
+    EXISTS (SELECT 1 FROM trade t, rst
+            WHERE t.trade_id = rst.d1_trade AND t.portfolio_id = pg_temp.pf('Rst Main')
+              AND (t.ticker, t.trade_type, t.shares, t.price, t.trade_date)
+                = ('RST1', 'BUY', 2, 100.00, DATE '2025-04-01')));
+SELECT pg_temp.check('  -> cash = before the delete + the 50 deposit',
+    (SELECT cash_balance FROM v_cash_balance WHERE portfolio_id = pg_temp.pf('Rst Main'))
+    = (SELECT cash_before + 50 FROM rst));
+SELECT pg_temp.check('  -> a restore adds no audit row (still 1 row for that trade: the DELETE)',
+    (SELECT count(*) = 1 FROM trade_audit WHERE trade_id = (SELECT d1_trade FROM rst)));
+SELECT pg_temp.expect_error('restore: the same trade twice -> exec_trade_already_restored',
+    format('CALL restore_trade(%s, NULL)',
+        (SELECT max(audit_id) FROM trade_audit
+                            WHERE trade_id = (SELECT d1_trade FROM rst))),
+    'exec_trade_already_restored');
+SELECT pg_temp.expect_ok('restore: UPDATE the trade (audit UPDATE row), then delete it again',
+    $q$
+    UPDATE trade SET shares = 1 WHERE trade_id = (SELECT d1_trade FROM rst);
+    DELETE FROM trade WHERE trade_id = (SELECT d1_trade FROM rst);
+    $q$);
+SELECT pg_temp.expect_error('restore: an UPDATE audit row -> exec_restore_not_delete',
+    format('CALL restore_trade(%s, NULL)',
+        (SELECT audit_id FROM trade_audit WHERE operation = 'UPDATE'
+                            AND trade_id = (SELECT d1_trade FROM rst))),
+    'exec_restore_not_delete');
+SELECT pg_temp.expect_error('restore: the OLDER DELETE row -> exec_restore_not_latest',
+    format('CALL restore_trade(%s, NULL)',
+        (SELECT min(audit_id) FROM trade_audit
+                            WHERE trade_id = (SELECT d1_trade FROM rst))),
+    'exec_restore_not_latest');
+SELECT pg_temp.expect_ok('restore: the NEWEST DELETE row works (the trade comes back with 1 share)',
+    format('CALL restore_trade(%s, NULL)',
+        (SELECT max(audit_id) FROM trade_audit
+                            WHERE trade_id = (SELECT d1_trade FROM rst))));
+SELECT pg_temp.check('  -> restored as it was at the last delete (1 share)',
+    (SELECT shares = 1 FROM trade WHERE trade_id = (SELECT d1_trade FROM rst)));
+
+-- Rst Spent: BUY 6 @100 (d1), delete it, BUY 9 @100 (d2) spends the cash:
+-- putting the d1 trade back would make the cash negative
+SELECT pg_temp.expect_ok('restore: Rst Spent: buy, delete, then spend the cash',
+    $q$
+    INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+    VALUES (pg_temp.pf('Rst Spent'), 'RST1', 'BUY', 6, 100, '2025-04-01');
+    DELETE FROM trade WHERE portfolio_id = pg_temp.pf('Rst Spent');
+    INSERT INTO trade (portfolio_id, ticker, trade_type, shares, price, trade_date)
+    VALUES (pg_temp.pf('Rst Spent'), 'RST1', 'BUY', 9, 100, '2025-04-02');
+    $q$);
+SELECT pg_temp.expect_error('restore: history no longer allows it -> trg_cash_never_negative',
+    format('CALL restore_trade(%s, NULL)',
+        (SELECT max(audit_id) FROM trade_audit
+                            WHERE portfolio_id = pg_temp.pf('Rst Spent') AND operation = 'DELETE')),
+    'trg_cash_never_negative');
+SELECT pg_temp.check('  -> nothing restored (only the d2 trade is there)',
+    (SELECT count(*) = 1 FROM trade WHERE portfolio_id = pg_temp.pf('Rst Spent')));
+
+-- =====================================================================
 -- analysis queries 2-5 (db/analysis/)
 -- Fictional tickers with prices only in 2025, so no other test data is
 -- in these periods:

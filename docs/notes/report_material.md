@@ -62,6 +62,17 @@ Every step that makes a design decision or finds a limitation adds a line here.
   - When the database's DETAIL already says everything the message says (`exec_no_price_data`, `exec_missing_input`), only the DETAIL is shown, as one precise line.
 - **Read-only mode for safe demos (`make run-readonly`).** The server setting `default_transaction_read_only=on` (via `PGOPTIONS`) makes every transaction read-only: browsing works, and every change is refused with a friendly message (SQLSTATE 25006). It is enforced by PostgreSQL, not by the app, so no code path can bypass it. *Lesson:* while exploring the real DB with scripted input, the input got out of step and created a test portfolio. I removed it (the fingerprint was unchanged), and since then real-DB exploration only runs in this mode.
 
+### Python CLI app, App 3: trade history, audit, restore
+- **Restoring a deleted trade vs the date-order rule: an "exact-replay exemption" (decided by me among three options).** A restored trade is usually older than the portfolio's latest event, so `trg_date_before_latest` would reject it.
+  - The new procedure `restore_trade(audit_id)` re-inserts the trade with its **original trade_id** (`OVERRIDING SYSTEM VALUE`).
+  - The date-order trigger skips **only** that one check, and only when the new row equals that trade's **latest** audit row and that row is a DELETE.
+  - Everything else still runs: the start-date check, price within the day's range, no INDEX, the daily_price FK and the history replay (cash / shares never negative).
+  - The exemption is defined by the data, so it can't be claimed by other inserts: a normal insert gets a new id, and no audit row has it. SQL tests prove that a new trade on the old date, or the old id with different values, is still rejected.
+  - **Rejected:** a session flag (anyone running SQL could set it and skip date order for any insert), and restoring as a new trade at the latest date (that changes the history; not "as it was").
+- **Keeping the original trade_id** also keeps the trade's place among same-day trades in the replay (order: date, cash before trades, id). With a new id it would move to the end of its day, which can change whether the history is valid.
+- **Restoring twice is refused by named errors** (`exec_trade_already_restored`, and `exec_restore_not_latest` for an older DELETE row after newer changes). The primary key on trade_id is the final guard if two sessions restore at the same time. A restore is an INSERT, so it writes no audit row; the DELETE row stays as history, and the app shows its status ("restorable" / "restored").
+- **Money in the database's DETAIL gets thousands separators** in the app (`-20366046.40` → `-20,366,046.40`, the same style as the tables). A regex matches only numbers with exactly 2 decimals, so dates, ids and share counts are unchanged, and `Decimal` keeps it exact.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -75,6 +86,8 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - `make apply-db` uses `CREATE OR REPLACE`, which can't change a function's return columns. That change needs a manual `DROP FUNCTION` first.
 - The dump drops pg_dump's `\restrict` protection, a 2025 fix that stops psql from running meta-commands injected through malicious object names. That is acceptable because every name and value in this database was created by us. DBeaver itself could not be tested here (Windows GUI). The non-psql restore is tested through psycopg instead. A GUI runs the statements one by one, so a failed run can leave a half-restored database (restore into a new empty one again).
 - Under `make run`, Ctrl+C prints "make: *** Interrupt" (make reports the signal, which the app can't prevent). The README and the start screen say to exit with 0, and demos use `python -m app`.
+- Restore is all-or-nothing per trade: if the history no longer allows it (e.g. the cash was spent since), it is refused (`trg_cash_never_negative`), and the user must first make room (deposit, or restore in a different order).
+- The audit log records UPDATE and DELETE only; a restore shows up as the DELETE row's status "restored", not as its own audit row.
 - The CLI app has no login or password: "choose investor" acts as the login (a stated simplification).
 - Identity sequences aren't rolled back with a transaction, so the rolled-back tests use up ids (e.g. the next investor in the test DB is 35, not 1). This is harmless: ids are only unique, not consecutive.
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.
