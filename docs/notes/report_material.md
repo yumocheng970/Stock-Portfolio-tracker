@@ -141,6 +141,12 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **Debug mode `APP_DEBUG=1`** also prints the traceback on screen and still returns to the menu (decided by me): you see the bug and keep your place.
 - **Startup diagnosis with exit codes:** can't connect → 2 (how to start PostgreSQL in WSL), database missing → 3 (`createdb` + restore), schema missing → 4 (restore the dump), unexpected → 1. Connection errors carry **no SQLSTATE** (checked: `e.sqlstate` is None, since no session exists yet), so "database … does not exist" is recognised from the server's message. The schema check looks for the 11 tables, both views and the key routines (`to_regclass`, `pg_proc`). All three cases are tested with real connection attempts that change nothing (a missing socket dir, a missing DB name, and the always-present `postgres` DB as the "empty" one).
 
+### Submission check: building on a new computer
+- **A fresh-machine test of the README** (clean clone, new conda environment, new scratch database, only the README) found **12 gaps** in the old README. There was no setup section at all: no clone, environment or `.env` step, and no download pages. The restore command pointed at the wrong path. `environment.yml` was a Linux-only build export. The DBeaver counts were stale. The rewritten README passed a second fresh run end to end: the restore, an app session with a trade and a report, and `make test` (343 SQL + 229 pytest) inside the clone. The table of findings is in `docs/notes/submission_check.md`.
+- **Portable environment:** `environment.yml` and `requirements.txt` list only the 8 libraries the code imports, with the tested versions as minimums. Faker is pinned exactly because the seeded sample data depends on it. The C++ toolchain and kaggle were dropped (the C++ extension is future work).
+- **The package is built from committed files only** (`git archive` of HEAD minus `analytics_cpp/`), so secrets and generated files (`.env`, `logs/`, `charts/`, `__pycache__`) can't get in, and a scan confirmed it.
+- Honest scope: tested on Windows 11 + WSL 2 (Ubuntu 24.04). The native Windows and macOS instructions follow the official installers but were not run.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.

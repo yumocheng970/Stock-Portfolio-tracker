@@ -31,7 +31,7 @@ constraints, triggers and procedures.
 
 **Linux / WSL (Ubuntu), tested:**
 ```bash
-sudo apt update && sudo apt install postgresql postgresql-client git make zip
+sudo apt update && sudo apt install postgresql postgresql-client git make
 sudo service postgresql start                 # WSL has no systemd by default; on Linux: sudo systemctl start postgresql
 sudo -u postgres createuser --createdb "$USER" # a database role with your Linux user name (peer login, no password)
 ```

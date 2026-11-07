@@ -225,7 +225,15 @@ Done so far:
   the menu again. __main__: exit 2 can't connect / 3 database missing (server text; no SQLSTATE) / 4
   schema missing (da.missing_schema_objects) / 1 unexpected outside menus; sys.exit(main()).
   Tests: conftest.log_to_tmp_path (autouse, tmp_path_factory) so logs never go into the repo.
-Next: final report material + fresh `make dump && make verify-dump` before submission
+- Submission check (DONE 2026-11-07): dump regenerated + verified; README rewritten as full build
+  instructions (prerequisites + download pages, clone, env, .env table per platform, restore with
+  db/dump/ path, run, errors, developers); fresh-machine test passed on a clean clone (WSL Ubuntu
+  24.04; Windows native / macOS written but untested). environment.yml is now PORTABLE (no build
+  strings; only the 8 imported libraries; Faker=40.40.0 exact; C++ / kaggle deps dropped);
+  requirements.txt the same for pip. `make package` -> cheng_project.zip (git archive of HEAD minus
+  analytics_cpp/; CLAUDE.md included; git-ignored; warns on uncommitted changes).
+Next: final report (docs/notes/report_material.md) + video; right before upload: make dump &&
+make verify-dump, commit, make package
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 

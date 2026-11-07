@@ -105,5 +105,5 @@ verify-dump:
 package:
 	@git diff --quiet HEAD || echo "WARNING: uncommitted changes are not in the zip (commit first)"
 	git archive --format=zip --prefix=cheng_project/ -o cheng_project.zip HEAD -- . ':(exclude)analytics_cpp'
-	@unzip -l cheng_project.zip | tail -1
+	@python3 -c "import zipfile; z = zipfile.ZipFile('cheng_project.zip'); print(len(z.namelist()), 'entries')"
 	@ls -l cheng_project.zip
