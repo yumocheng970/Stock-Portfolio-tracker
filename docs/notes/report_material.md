@@ -166,6 +166,9 @@ Every step that makes a design decision or finds a limitation adds a line here.
   - The trading-date hints now respect the portfolio's allowed range (start date / latest event). A date before it is asked again at once, offering the first trading day on or after it, and no suggestion ever falls before it. Before this fix, the hint offered 2024-12-31 for a portfolio starting 2025-01-01, and the DB then refused the trade.
   - A connection **timeout** on localhost (on Windows, a stopped PostgreSQL service shows only "connection timeout expired") now adds "Nothing answered on localhost:5432. Is the PostgreSQL service running? (services.msc …)", in both the wizard and the app's startup check. The app also gives up after 10 s (`PGCONNECT_TIMEOUT`) instead of waiting much longer.
 
+### Ticker help at the prompts
+- Every ticker prompt accepts `?` (a list grouped by sector, one screen) and company names (case-insensitive, partial; one match → confirm, several → listed). The list depends on the context: Buy / Rebalance show stocks only, Sell shows only this portfolio's holdings with share counts, watchlists / price history / admin also show indexes. List and search share one SQL `FROM` part, so they always agree; user-typed `%` / `_` are escaped. Hints only: the database still decides.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.

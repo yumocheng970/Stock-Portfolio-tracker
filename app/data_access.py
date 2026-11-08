@@ -825,3 +825,46 @@ def trading_day_info(conn, ticker, day, earliest=None):
                  WHERE dp.ticker = t.ticker AND dp.price_date >= %(earliest)s::date) AS first_allowed
         FROM t
     """, {"ticker": ticker, "day": day, "earliest": earliest})
+
+
+# ---------------------------------------------------------------------
+# Ticker help for the prompts ("? = list", company-name search)
+# kind: "stocks" = STOCKs only (Buy, Rebalance); "all" = stocks and indexes
+# (watchlists, price history, admin); "held" = this portfolio's open positions (Sell)
+# ---------------------------------------------------------------------
+_TICKER_HELP_FROM = """
+    FROM stock s
+    LEFT JOIN sector sec ON sec.sector_id = s.sector_id
+    LEFT JOIN (SELECT h.ticker, h.shares_held FROM v_holdings h
+               WHERE h.portfolio_id = %(pid)s AND h.is_open) held ON held.ticker = s.ticker
+    WHERE (%(kind)s = 'all'
+           OR (%(kind)s = 'stocks' AND s.security_type = 'STOCK')
+           OR (%(kind)s = 'held' AND held.shares_held > 0))
+"""
+_TICKER_HELP_COLUMNS = """
+    SELECT s.ticker, s.company_name, s.security_type,
+           COALESCE(sec.sector_name,
+                    CASE WHEN s.security_type = 'INDEX' THEN 'Indexes' ELSE 'No sector' END) AS sector_name,
+           held.shares_held
+"""
+
+
+def ticker_catalog(conn, kind, portfolio_id=None):
+    """The tickers a prompt accepts, grouped by sector (see the kinds above)."""
+    return _fetch_all(conn, _TICKER_HELP_COLUMNS + _TICKER_HELP_FROM + " ORDER BY sector_name, s.ticker",
+                      {"kind": kind, "pid": portfolio_id})
+
+
+def search_company(conn, text, kind, portfolio_id=None):
+    """Tickers whose company name contains `text` (case-insensitive), same kinds.
+    % and _ in the text are matched literally (escaped), not as LIKE wildcards."""
+    pattern = "%" + text.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    return _fetch_all(conn, _TICKER_HELP_COLUMNS + _TICKER_HELP_FROM
+                      + " AND s.company_name ILIKE %(pattern)s ORDER BY s.ticker",
+                      {"kind": kind, "pid": portfolio_id, "pattern": pattern})
+
+
+def existing_tickers(conn, tickers):
+    """The subset of `tickers` that exist in the stock table."""
+    rows = _fetch_all(conn, "SELECT ticker FROM stock WHERE ticker = ANY(%s)", (list(tickers),))
+    return {row["ticker"] for row in rows}

@@ -14,7 +14,7 @@ from app.errors import safe_call
 from app import csv_import, rebalance
 from app.inputs import ask_decimal, ask_int, ask_text, ask_yes_no, confirm_typed, pause
 from app.menu import run_menu
-from app.menus.common import ask_event_date, ask_ticker, ask_trading_date
+from app.menus.common import ask_event_date, ask_ticker, ask_trading_date, match_company, show_ticker_list
 from app.menus.reports_menu import reports_menu
 from app.menus.trade_history_menu import trade_history_menu
 
@@ -145,7 +145,7 @@ def trade(session, trade_type):
     print(f"\n{verb}")
     show_context(session)
 
-    ticker = ask_ticker(session)
+    ticker = ask_ticker(session, held_only=(trade_type == "SELL"))
     if ticker is None:
         print("  Cancelled.")
         return
@@ -238,6 +238,28 @@ def import_csv(session):
     pause()
 
 
+def resolve_target_names(session, targets):
+    """Targets typed as company names ("apple 30") -> tickers, after confirming.
+    Returns the targets with tickers, or None to ask for the targets again."""
+    ok, known = safe_call(da.existing_tickers, session.conn, targets)
+    if not ok:
+        return targets                   # no hint available; the database decides
+    resolved = {}
+    for name, pct in targets.items():
+        ticker = name
+        if name not in known:
+            ticker, matched = match_company(session, name, "stocks")
+            if ticker is None:
+                if not matched:
+                    print(f"  {name} is not in the stock list (type ? for the list).")
+                return None
+        if ticker in resolved:
+            print(f"  {ticker} is listed twice.")
+            return None
+        resolved[ticker] = pct
+    return resolved
+
+
 REBALANCE_COLUMNS = [
     ("ticker", "Ticker"), ("price", "Price"), ("shares", "Shares now"), ("pct", "% now"),
     ("target_text", "Target"), ("trade_text", "Trade"), ("shares_after", "Shares after"),
@@ -274,14 +296,21 @@ def rebalance_portfolio(session):
           + (", ".join(f"{t} {n}" for t, n in holdings.items()) or "none"))
 
     while True:
-        text = ask_text("Targets, e.g. AAPL 30, MSFT 20, KO 10 (Enter = cancel)", 500, required=False)
+        text = ask_text("Targets, e.g. AAPL 30, MSFT 20, KO 10 (? = list, Enter = cancel)", 500,
+                        required=False)
         if text is None:
             return
+        if text == "?":
+            show_ticker_list(session, "stocks")
+            continue
         targets, errors = rebalance.parse_targets(text)
-        if not errors:
+        if errors:
+            for error in errors:
+                print(f"  {error}")
+            continue
+        targets = resolve_target_names(session, targets)
+        if targets is not None:
             break
-        for error in errors:
-            print(f"  {error}")
 
     ok, prices = safe_call(da.latest_closes, session.conn, set(holdings) | set(targets), day)
     if not ok:

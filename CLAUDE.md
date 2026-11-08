@@ -247,6 +247,11 @@ Done so far:
   it. app.__main__.service_hint: a timeout on localhost -> "Nothing answered on host:port. Is the
   PostgreSQL service running? (Windows: Win+R -> services.msc ...)" (app startup + wizard); the app
   sets PGCONNECT_TIMEOUT=10 by default.
+- Ticker help (2026-11-08): every ticker prompt "(? = list)": common.show_ticker_list(kind) with
+  da.ticker_catalog(kind: stocks / all / held, portfolio) + app/ticker_help.format_catalog (by sector,
+  two per line); common.match_company (da.search_company, ILIKE, escaped): 1 match -> confirm,
+  several -> list. ask_ticker(session, allow_index, held_only): Sell = held_only. Rebalance targets:
+  "?" + resolve_target_names; admin ask_existing_stock: "?" (all) + names. Hints only.
 Next: final report (docs/notes/report_material.md) + video; right before upload: make dump &&
 make verify-dump, commit, make package
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them

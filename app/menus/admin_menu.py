@@ -10,7 +10,7 @@ from app.display import print_table
 from app.errors import safe_call
 from app.inputs import ask_int, ask_text, confirm_typed, pause
 from app.menu import run_menu
-from app.menus.common import TICKER_MAX
+from app.menus.common import NAME_SEARCH_MAX, TICKER_MAX, match_company, show_ticker_list
 
 COMPANY_MAX = 100       # stock.company_name VARCHAR(100)
 NAME_MAX = 50           # sector_name / exchange_name VARCHAR(50)
@@ -60,15 +60,25 @@ def ask_name_from_list(session, what, list_function, name_key, required=True):
 def ask_existing_stock(session, action):
     """Ask for a ticker that exists; returns the stock row, or None (Enter = cancel)."""
     while True:
-        ticker = ask_text(f"Ticker to {action} (Enter = cancel)", TICKER_MAX, required=False)
+        ticker = ask_text(f"Ticker to {action} (? = list, Enter = cancel)", NAME_SEARCH_MAX, required=False)
         if ticker is None:
             return None
+        if ticker == "?":
+            show_ticker_list(session, "all")
+            continue
         ok, stock = safe_call(da.get_stock, session.conn, ticker)
         if not ok:
             return None
         if stock is None:
-            print(f"  {ticker.upper()} is not in the stock list. Type another ticker, or Enter to cancel.")
-            continue
+            found, matched = match_company(session, ticker, "all")
+            if found is None:
+                if not matched:
+                    print(f"  {ticker.upper()} is not in the stock list. Type another ticker, "
+                          "? for the list, or Enter to cancel.")
+                continue
+            ok, stock = safe_call(da.get_stock, session.conn, found)
+            if not ok or stock is None:
+                continue
         print(f"  {stock['ticker']}: {stock['company_name']} ({stock['security_type']}), "
               f"sector {stock['sector_name'] or '-'}, exchange {stock['exchange_name'] or '-'}")
         return stock

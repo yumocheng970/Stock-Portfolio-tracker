@@ -205,6 +205,8 @@ database you are connected to.
   `python -m app` for demos and exit with 0.
 - Charts are saved in `charts/`, the error log in `logs/app.log` (both git-ignored).
 - Sample CSV files for "Import from CSV": `data/samples/` (see its README).
+- At any ticker prompt, type `?` for the list of tickers (grouped by sector), or type a company
+  name such as `apple`: the app suggests the ticker.
 
 ## 7. Errors, the log and debug mode
 - A database refusal (not enough cash, duplicate name, ...) is shown as a friendly message; nothing

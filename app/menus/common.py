@@ -1,11 +1,12 @@
 """Prompts shared by several menus: the price range hint, the date prompt with
 the project's default date, and the ticker prompt that re-asks unknown tickers."""
 from app import data_access as da
-from app import trading_days
+from app import ticker_help, trading_days
 from app.errors import safe_call
 from app.inputs import ask_date, ask_text, ask_yes_no
 
 TICKER_MAX = 10         # stock.ticker VARCHAR(10)
+NAME_SEARCH_MAX = 100   # the ticker prompt also accepts a company name
 
 
 def show_price_range(session):
@@ -60,26 +61,77 @@ def ask_trading_date(session, prompt, ticker=None, portfolio_id=None):
         day = ask_date(prompt, default=default)
 
 
-def ask_ticker(session, allow_index=False):
-    """Ask for a ticker and show what we know about it. An unknown ticker (or,
-    unless allow_index, an index) is asked again right away (a hint: the
-    database still decides). Watchlists use allow_index=True: watching ^GSPC
-    is fine, only trading it isn't.
+def show_ticker_list(session, kind):
+    """Print the "? = list": the tickers this prompt accepts, grouped by sector.
+    kind: "stocks" (Buy, Rebalance), "all" (stocks + indexes) or "held" (Sell)."""
+    ok, rows = safe_call(da.ticker_catalog, session.conn, kind, session.portfolio_id)
+    if not ok:
+        return
+    if not rows:
+        print("  You hold no shares in this portfolio yet." if kind == "held" else "  No tickers yet.")
+        return
+    titles = {"stocks": "Stocks", "all": "Stocks and indexes", "held": "What you hold (shares)"}
+    print(f"  {titles[kind]}:")
+    print(ticker_help.format_catalog(rows))
+
+
+def match_company(session, text, kind):
+    """`text` is not a ticker: look for companies whose name contains it.
+    One match: suggest it and ask to confirm. Several: list them.
+    Returns (ticker or None, whether anything matched)."""
+    ok, rows = safe_call(da.search_company, session.conn, text, kind, session.portfolio_id)
+    if not ok or not rows:
+        return None, False
+    if len(rows) == 1:
+        row = rows[0]
+        if ask_yes_no(f"  '{text}' is not a ticker. Did you mean {row['ticker']} ({row['company_name']})?"):
+            return row["ticker"], True
+        return None, True
+    print(f"  Several companies match '{text}':")
+    for row in rows:
+        print(f"    {ticker_help.entry(row)}")
+    print("  Type one of these tickers.")
+    return None, True
+
+
+def ask_ticker(session, allow_index=False, held_only=False):
+    """Ask for a ticker and show what we know about it.
+    - "?" lists the accepted tickers: all stocks, + indexes if allow_index (watchlists,
+      price history), or only this portfolio's holdings if held_only (Sell).
+    - A company name ("apple", partial, any case) is looked up and suggested.
+    - An unknown ticker, an index when allow_index is False, or (held_only) a ticker
+      you don't hold is asked again right away.
+    Hints only: the database still decides.
     Returns the ticker in capitals, or None if the user pressed Enter (cancel)."""
+    kind = "held" if held_only else ("all" if allow_index else "stocks")
     while True:
-        ticker = ask_text("Ticker (Enter = cancel)", TICKER_MAX, required=False)
-        if ticker is None:
+        text = ask_text("Ticker (? = list, Enter = cancel)", NAME_SEARCH_MAX, required=False)
+        if text is None:
             return None
-        ticker = ticker.upper()
+        if text == "?":
+            show_ticker_list(session, kind)
+            continue
+        ticker = text.upper()
         ok, info = safe_call(da.ticker_context, session.conn, session.portfolio_id, ticker)
         if not ok:
             return ticker                 # no hint available; let the database decide
         if info["company_name"] is None:
-            print(f"  {ticker} is not in the stock list. Type another ticker, or Enter to cancel.")
-            continue
+            found, matched = match_company(session, text, kind)
+            if found is None:
+                if not matched:
+                    print(f"  {ticker} is not in the stock list. Type another ticker, "
+                          "? for the list, or Enter to cancel.")
+                continue
+            ticker = found
+            ok, info = safe_call(da.ticker_context, session.conn, session.portfolio_id, ticker)
+            if not ok:
+                return ticker
         if info["security_type"] == "INDEX" and not allow_index:
             print(f"  {ticker} is an index: it can be watched but not traded. "
                   "Type another ticker, or Enter to cancel.")
+            continue
+        if held_only and not info["shares_held"]:
+            print(f"  You don't hold {ticker} in this portfolio. Type ? for what you hold.")
             continue
         if session.portfolio_id is None:          # watchlists: no holdings to show
             print(f"  {ticker}: {info['company_name']}, latest price {info['last_price_date']}")

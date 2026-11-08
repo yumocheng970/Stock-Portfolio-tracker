@@ -129,7 +129,9 @@ def test_menu_rebalance_declined_or_read_only_saves_nothing(pf, monkeypatch, cap
 
 
 def test_menu_rebalance_missing_price_message(pf, monkeypatch, capsys):
+    # (Changed with the ticker help: an unknown ticker is now caught at the targets
+    # prompt and asked again, instead of failing later with "No price for ZZZ".)
     conn, pid, session = pf
-    fake_input(monkeypatch, ["", "ZZZ 10", ""])
+    fake_input(monkeypatch, ["", "ZZZ 10", ""])          # date, targets, Enter = cancel at the re-ask
     portfolio_menu.rebalance_portfolio(session)
-    assert "No price for ZZZ on or before the chosen date" in capsys.readouterr().out
+    assert "ZZZ is not in the stock list (type ? for the list)." in capsys.readouterr().out
