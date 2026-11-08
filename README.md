@@ -36,7 +36,7 @@ To restore the dump alone (reads `.env`): `python -m db.restore`.
 
 | Platform | Status |
 |---|---|
-| **Windows 11, native** (Miniforge Prompt, PostgreSQL **18.6**, the zip) | **Manual steps tested** (environment, restore 1,155 trades, app, reports, charts); `setup.bat` written but **not yet tested on Windows** |
+| **Windows 11, native** (Miniforge Prompt, PostgreSQL **18.6**, the zip) | **Tested**: `setup.bat` end to end (created `spt`, connected, created the database, restored in 0.6 s, 1,155 trades, started the app) and the manual steps (app, reports, charts) |
 | **Windows 11 + WSL 2, Ubuntu 24.04**, PostgreSQL 16.15, conda 26.1 (Miniforge), Python 3.12.14 | **Tested**: the manual steps on a clean clone, and `setup.sh` end to end |
 | macOS | Instructions written, **not tested** |
 

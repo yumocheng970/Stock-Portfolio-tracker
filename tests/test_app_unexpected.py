@@ -133,3 +133,29 @@ def test_empty_database_without_schema(monkeypatch, capsys):
 
 def test_test_database_has_the_whole_schema(conn):
     assert da.missing_schema_objects(conn) == []
+
+
+# A connection timeout on this computer (Windows: the PostgreSQL service is stopped) ------
+TIMEOUT = 'connection to server at "localhost" (127.0.0.1), port 5432 failed: timeout expired'
+
+
+def test_startup_timeout_on_localhost_says_check_the_service(monkeypatch, capsys):
+    monkeypatch.delenv("PGCONNECT_TIMEOUT", raising=False)
+    monkeypatch.setenv("DB_HOST", "localhost")
+    monkeypatch.setenv("DB_PORT", "5432")
+    def timeout():
+        raise psycopg.OperationalError(TIMEOUT)
+    monkeypatch.setattr(app_main, "connect", timeout)
+    monkeypatch.setattr(app_main, "setup_logging", lambda: error_log.log_path())
+    assert app_main.main() == 2
+    out = capsys.readouterr().out
+    assert "Nothing answered on localhost:5432. Is the PostgreSQL service running?" in out
+    assert "services.msc" in out and "Traceback" not in out
+    import os
+    assert os.environ["PGCONNECT_TIMEOUT"] == "10"            # the app gives up after 10 s
+
+
+def test_service_hint_only_for_a_local_timeout():
+    assert app_main.service_hint(TIMEOUT, "127.0.0.1", "") .startswith("Nothing answered on 127.0.0.1:5432.")
+    assert app_main.service_hint(TIMEOUT, "db.example.com", "5432") is None       # not this computer
+    assert app_main.service_hint("Connection refused", "localhost", "5432") is None

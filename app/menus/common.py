@@ -31,19 +31,32 @@ def ask_trading_date(session, prompt, ticker=None, portfolio_id=None):
     """Ask for a date that must be a trading day (for `ticker`, or the market ^GSPC when
     ticker is None). A date without a price is asked again at once, with the reason
     (weekend, holiday, after the last price, ...) and the nearest trading days; Enter
-    then offers the nearest earlier one. A hint only: the database still decides."""
+    then offers the nearest earlier one. Dates before the portfolio's earliest allowed
+    date (start date or latest event) are asked again too, and never suggested.
+    A hint only: the database still decides."""
+    earliest = None
+    if portfolio_id is not None:
+        ok, context = safe_call(da.trade_context, session.conn, portfolio_id)
+        earliest = context["latest_allowed"] if ok and context else None
     day = ask_event_date(session, prompt, portfolio_id)
     while True:
-        ok, info = safe_call(da.trading_day_info, session.conn, ticker, day)
-        if not ok or info["has_price"]:
+        ok, info = safe_call(da.trading_day_info, session.conn, ticker, day, earliest)
+        if not ok:
+            return day
+        problem = trading_days.too_early(day, earliest)
+        if problem:              # before the start date / latest event: ask again right away
+            print(f"  Too early: {problem}")
+            day = ask_date(prompt, default=info["first_allowed"] or earliest)
+            continue
+        if info["has_price"]:
             return day
         if ticker is None and not info["market_known"]:
             return day           # no ^GSPC prices to judge "the market" by: the database decides
         print(f"  No price: {trading_days.no_price_reason(day, info)}")
-        default = trading_days.next_default(info)
+        default = trading_days.next_default(info, earliest)
         if default is None:      # no trading day at all to offer: asking again can't help
             return day           # the database refuses it with a clear message
-        print(f"  {trading_days.nearest_days(info)}")
+        print(f"  {trading_days.nearest_days(info, earliest)}")
         day = ask_date(prompt, default=default)
 
 

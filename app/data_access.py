@@ -802,10 +802,11 @@ def missing_schema_objects(conn):
 # ---------------------------------------------------------------------
 # Trading days (hints for date prompts; the database still decides)
 # ---------------------------------------------------------------------
-def trading_day_info(conn, ticker, day):
+def trading_day_info(conn, ticker, day, earliest=None):
     """Facts about `day` for a ticker (None = the market, ^GSPC): has a price that day,
-    did ^GSPC (the market) have one, the ticker's first / last price date and the
-    nearest price dates before / after `day`."""
+    did ^GSPC (the market) have one, the ticker's first / last price date, the
+    nearest price dates before / after `day`, and (if `earliest` is given: the
+    portfolio's earliest allowed date) the first price date on or after it."""
     return _fetch_one(conn, """
         WITH t AS (SELECT COALESCE(upper(btrim(%(ticker)s::text)), '^GSPC') AS ticker)
         SELECT t.ticker,
@@ -819,6 +820,8 @@ def trading_day_info(conn, ticker, day):
                (SELECT max(price_date) FROM daily_price dp
                  WHERE dp.ticker = t.ticker AND dp.price_date < %(day)s) AS before,
                (SELECT min(price_date) FROM daily_price dp
-                 WHERE dp.ticker = t.ticker AND dp.price_date > %(day)s) AS after
+                 WHERE dp.ticker = t.ticker AND dp.price_date > %(day)s) AS after,
+               (SELECT min(price_date) FROM daily_price dp
+                 WHERE dp.ticker = t.ticker AND dp.price_date >= %(earliest)s::date) AS first_allowed
         FROM t
-    """, {"ticker": ticker, "day": day})
+    """, {"ticker": ticker, "day": day, "earliest": earliest})

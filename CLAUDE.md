@@ -241,7 +241,12 @@ Done so far:
   db/tests/restore_without_psql.py is a wrapper). app/trading_days.py + da.trading_day_info +
   common.ask_trading_date (Buy/Sell per ticker, Rebalance via ^GSPC; re-ask with reason + nearest days).
   charts.can_open_charts / open_chart (WSL explorer.exe, Windows os.startfile, macOS open).
-  setup.bat written but NOT yet tested on Windows (say so until the user confirms).
+  setup.bat TESTED by the user on Windows 11 (PostgreSQL 18.6): end to end, restore 0.6 s, 1,155 trades.
+  Follow-up fixes: ask_trading_date respects the portfolio's earliest allowed date (da.trade_context
+  latest_allowed): too early -> re-ask with the first trading day on/after it; suggestions never before
+  it. app.__main__.service_hint: a timeout on localhost -> "Nothing answered on host:port. Is the
+  PostgreSQL service running? (Windows: Win+R -> services.msc ...)" (app startup + wizard); the app
+  sets PGCONNECT_TIMEOUT=10 by default.
 Next: final report (docs/notes/report_material.md) + video; right before upload: make dump &&
 make verify-dump, commit, make package
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them

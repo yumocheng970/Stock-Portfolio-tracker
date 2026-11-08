@@ -10,7 +10,7 @@ Your test / 你的测试：Windows 11, Miniforge Prompt, **PostgreSQL 18.6** (fo
 | 3 | Too many manual steps (password on every psql command, `.env` by hand) / 手动步骤太多 | **Setup wizard**: `setup.bat` / `setup.sh` → `python -m setup`; restore alone: `python -m db.restore` |
 | 4 | A date without a price went on to the price prompt / 没有价格的日期还会继续问价格 | Re-asked at once, with the **reason** and the **nearest trading days** (Buy / Sell, Rebalance) |
 | 5 | "Open the chart" worked only in WSL / 只有 WSL 能打开图表 | Windows `os.startfile`, macOS `open`, WSL `explorer.exe` |
-| 6 | README start / README 开头 | "Quick start" at the top; tested platforms updated (`setup.bat` not yet tested on Windows) |
+| 6 | README start / README 开头 | "Quick start" at the top; tested platforms updated. `setup.bat` was then **tested by you on Windows 11** (see section 5) / 之后你在 Windows 11 上测试了 `setup.bat`（见第 5 节） |
 
 ---
 
@@ -123,3 +123,34 @@ setup.bat / ./setup.sh          create conda env "spt" if missing -> conda run -
 
 **Not tested / 未测试：** `setup.bat` on Windows (it needs your Windows run); macOS.
 `setup.bat` 需要你在 Windows 上运行才能测试；macOS 没有测试。
+
+---
+
+## 5. Your `setup.bat` run and the two follow-up fixes / 你的 setup.bat 测试与两个后续修正
+**EN:**
+- **`setup.bat` worked end to end** on Windows 11 (PostgreSQL 18.6, Miniforge Prompt): it created `spt`, printed "Connected to PostgreSQL 18.6 …", created the database, restored in 0.6 s (1,155 trades) and started the app. The weekend and holiday reasons worked. The README now says **tested** for Windows 11.
+- **Fix 1: trading dates respect the portfolio's allowed range.** The earliest allowed date is the start date, or the latest trade or cash transaction if later (`da.trade_context` → `latest_allowed`, the same rule as the date-order trigger).
+  - A date **before** it is asked again at once: "Too early: 2025-03-03 is before 2025-03-09, the earliest date this portfolio allows …". Enter then offers the first trading day on or after it (`first_allowed`, a new column in `da.trading_day_info`).
+  - A suggestion **never** falls before it: for a portfolio starting on Sunday 2025-03-09, the Sunday shows only "after 2025-03-10", never 03-07. That was the bug: 2024-12-31 was suggested for a portfolio starting 2025-01-01, a holiday.
+  - Still hints only: the date-order trigger decides.
+- **Fix 2: a connection timeout on this computer says what to check.**
+  - `app.__main__.service_hint(text, host, port)`: for "timeout expired" on `localhost` / `127.0.0.1` / `::1` → "Nothing answered on localhost:5432. Is the PostgreSQL service running? (Windows: Win+R -> services.msc -> postgresql-x64-... -> Start)".
+  - Used by the app's startup check and by the wizard (both on a fresh connection and with an existing `.env`).
+  - The app now sets `PGCONNECT_TIMEOUT=10` (a libpq setting) unless you set your own, so a stopped service gives this message after 10 s instead of a long wait.
+- **7 new tests:**
+  - the too-early message; suggestions filtered by the earliest date
+  - Buy before the start → re-asked, Enter = 03-10 → bought
+  - a Sunday that is the start day → only "after" suggested → bought on 03-10
+  - the startup timeout on localhost → the hint, exit 2, `PGCONNECT_TIMEOUT` = 10
+  - the hint only for a local timeout
+  - the wizard timeout → the hint, then a successful 2nd try
+- Totals: 343 SQL + 257 pytest.
+
+**中文：**
+- **你在 Windows 11 上运行的 `setup.bat` 从头到尾都成功了**（创建 spt、显示连接信息、建库、0.6 秒恢复、1,155 笔交易、启动程序）。周末和节假日的提示也正常。README 已改为**已测试**。
+- **修正 1：交易日期遵守组合允许的范围**（开始日期，或最近一次交易/现金交易，取较晚者；规则与日期顺序触发器相同）。
+  - 早于该日期的输入会立刻重新询问，回车 = 该日期当天或之后的第一个交易日。
+  - 不会再建议早于该日期的日子（原来的 bug：组合 2025-01-01 开始，却建议 2024-12-31）。
+  - 仍然只是提示，由触发器最终判断。
+- **修正 2：本机连接超时时说明该检查什么**（"Nothing answered on localhost:5432 … services.msc …"），用于程序启动检查和安装向导。程序默认设置 `PGCONNECT_TIMEOUT=10`，服务停止时 10 秒后给出提示，而不是长时间等待。
+- 新增 7 个测试，覆盖上方英文列表中的情况。合计：SQL 343 个 + pytest 257 个。

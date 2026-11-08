@@ -34,6 +34,19 @@ def database_setting():
     return os.getenv("DB_NAME", "portfolio_tracker")
 
 
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def service_hint(text, host, port):
+    """For a connection timeout on this computer: say what to check. (A stopped
+    PostgreSQL service on Windows shows only "connection timeout expired".)
+    Returns None when the hint doesn't apply."""
+    if "timeout expired" not in text or (host or "").lower() not in LOCAL_HOSTS:
+        return None
+    return (f"Nothing answered on {host}:{port or 5432}. Is the PostgreSQL service running? "
+            "(Windows: Win+R -> services.msc -> postgresql-x64-... -> Start)")
+
+
 def explain_connection_error(error):
     """A friendly message and exit code for a failed connection. Connection errors
     have no SQLSTATE (they happen before a session exists), so the server's text decides."""
@@ -43,6 +56,9 @@ def explain_connection_error(error):
         return (f"The database '{db}' doesn't exist. Create it and restore the dump:\n"
                 + CREATE_HELP.format(db=db) + RESTORE_HELP.format(db=db)), EXIT_NO_DATABASE
     reason = text.split("failed:")[-1].strip().splitlines()[0] if "failed:" in text else text.splitlines()[0]
+    hint = service_hint(text, os.getenv("DB_HOST"), os.getenv("DB_PORT"))
+    if hint:
+        return f"Can't connect to PostgreSQL ({reason}).\n  {hint}", EXIT_NO_SERVER
     return (f"Can't connect to PostgreSQL ({reason}).\n"
             "  Is the server running? In WSL start it with:  sudo service postgresql start\n"
             "  Also check DB_HOST / DB_PORT / DB_USER in .env (see .env.example)."), EXIT_NO_SERVER
@@ -50,6 +66,9 @@ def explain_connection_error(error):
 
 def main():
     log_file = setup_logging()
+    # Give up after 10 s instead of waiting a long time when nothing answers
+    # (libpq reads PGCONNECT_TIMEOUT; a value you set yourself is kept)
+    os.environ.setdefault("PGCONNECT_TIMEOUT", "10")
     try:
         conn = connect()            # autocommit=True; each data_access function is one transaction
     except psycopg.OperationalError as error:

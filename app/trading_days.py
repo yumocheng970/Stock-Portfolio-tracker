@@ -28,10 +28,25 @@ def no_price_reason(day, info):
     return f"{ticker} has no price on {day}."
 
 
-def nearest_days(info):
-    """'Nearest trading days for AAPL: before 2026-11-06, after 2026-11-09'."""
+def too_early(day, earliest):
+    """A sentence if `day` is before the portfolio's earliest allowed date, else None."""
+    if earliest is None or day >= earliest:
+        return None
+    return (f"{day} is before {earliest}, the earliest date this portfolio allows "
+            "(its start date, or its latest trade or cash transaction).")
+
+
+def allowed_before(info, earliest):
+    """The nearest earlier trading day, but only if the portfolio allows it."""
+    before = info["before"]
+    return before if before and (earliest is None or before >= earliest) else None
+
+
+def nearest_days(info, earliest=None):
+    """'Nearest trading days for AAPL: before 2026-11-06, after 2026-11-09'.
+    A day before the portfolio's earliest allowed date is never suggested."""
     parts = []
-    if info["before"]:
+    if allowed_before(info, earliest):
         parts.append(f"before {info['before']}")
     if info["after"]:
         parts.append(f"after {info['after']}")
@@ -40,7 +55,7 @@ def nearest_days(info):
     return f"Nearest trading days for {info['ticker']}: " + ", ".join(parts) + "."
 
 
-def next_default(info):
+def next_default(info, earliest=None):
     """The date offered at the next prompt: the nearest earlier trading day
-    (a weekend -> Friday), or the next one if there is none earlier."""
-    return info["before"] or info["after"]
+    (a weekend -> Friday) if the portfolio allows it, else the next one."""
+    return allowed_before(info, earliest) or info["after"]

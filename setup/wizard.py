@@ -88,6 +88,12 @@ def connect(settings, dbname):
     return psycopg.connect(**params, autocommit=True, connect_timeout=5)
 
 
+def service_hint(text, host, port):
+    """The 'Nothing answered on localhost:5432 ...' hint (shared with the app's startup check)."""
+    from app.__main__ import service_hint as hint
+    return hint(text, host, port)
+
+
 def reason(error):
     """The server's one-line reason from a connection error."""
     text = str(error)
@@ -132,6 +138,9 @@ def ask_connection(defaults):
             return settings, connect(settings, "postgres")
         except psycopg.OperationalError as error:
             print(f"\n  !! Can't connect: {reason(error)}")
+            hint = service_hint(str(error), settings["DB_HOST"], settings["DB_PORT"])
+            if hint:
+                print(f"     {hint}")
             print("     Check that PostgreSQL is running and the values are right, then try again"
                   " (Ctrl+C quits).\n")
 
@@ -203,6 +212,9 @@ def run(start_app=None):
             try:
                 admin = connect(settings, "postgres")
             except psycopg.OperationalError as error:
+                hint = service_hint(str(error), settings.get("DB_HOST"), settings.get("DB_PORT"))
+                if hint:
+                    print(f"  {hint}")
                 raise SetupStopped(f"Can't connect with the settings in .env: {reason(error)}. "
                                    "Run the wizard again and answer y to overwrite .env, "
                                    "or fix .env by hand.") from error

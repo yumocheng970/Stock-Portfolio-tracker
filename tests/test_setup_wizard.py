@@ -153,3 +153,21 @@ def test_restore_refuses_a_database_with_tables():
     with psycopg.connect(dbname="portfolio_tracker", host=SOCKET, autocommit=True) as conn:
         with pytest.raises(restore.RestoreRefused):
             restore.restore_dump(conn)
+
+
+def test_wizard_timeout_on_localhost_says_check_the_service(env_file, monkeypatch, capsys):
+    real_connect, calls = wizard.connect, []
+    def first_times_out(settings, dbname):
+        calls.append(settings["DB_HOST"])
+        if len(calls) == 1:
+            raise psycopg.OperationalError("connection timeout expired")
+        return real_connect(settings, dbname)
+    monkeypatch.setattr(wizard, "connect", first_times_out)
+    answers(monkeypatch, ["localhost", "5432", "",            # 1st try: localhost, nothing answers
+                          SOCKET, "", "",                     # 2nd try: the local socket
+                          "portfolio_tracker_test", "n"], passwords=["", ""])
+    assert wizard.run() == 0
+    out = capsys.readouterr().out
+    assert "!! Can't connect: connection timeout expired" in out
+    assert "Nothing answered on localhost:5432. Is the PostgreSQL service running?" in out
+    assert "services.msc" in out
