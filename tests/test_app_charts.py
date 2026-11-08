@@ -157,3 +157,33 @@ def test_volume_has_thousands_separators(capsys):
     print_table([{"price_date": END, "volume": 4828050000}], [("price_date", "Date"), ("volume", "Volume")],
                 thousands=("volume",))
     assert "4,828,050,000" in capsys.readouterr().out
+
+
+# Opening a chart: the right command per platform (mocked; nothing is ever opened) ------
+def test_open_chart_per_platform(monkeypatch, tmp_path):
+    png = tmp_path / "c.png"
+    calls = []
+    monkeypatch.setattr(charts, "open_in_windows", lambda path: calls.append(("wsl", path)))
+    monkeypatch.setattr(charts.os, "startfile", lambda path: calls.append(("startfile", path)), raising=False)
+    monkeypatch.setattr(charts.subprocess, "run", lambda args, **kw: calls.append(("run", args)))
+
+    monkeypatch.setattr(charts, "is_wsl", lambda: True)                       # WSL
+    assert charts.can_open_charts()
+    charts.open_chart(png)
+
+    monkeypatch.setattr(charts, "is_wsl", lambda: False)
+    monkeypatch.setattr(charts.sys, "platform", "win32")                      # native Windows
+    assert charts.can_open_charts()
+    charts.open_chart(png)
+
+    monkeypatch.setattr(charts.sys, "platform", "darwin")                     # macOS
+    assert charts.can_open_charts()
+    charts.open_chart(png)
+
+    assert calls == [("wsl", png), ("startfile", str(png)), ("run", ["open", str(png)])]
+
+
+def test_plain_linux_is_not_offered_to_open(monkeypatch):
+    monkeypatch.setattr(charts, "is_wsl", lambda: False)
+    monkeypatch.setattr(charts.sys, "platform", "linux")
+    assert charts.can_open_charts() is False

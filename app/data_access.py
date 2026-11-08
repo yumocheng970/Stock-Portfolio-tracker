@@ -797,3 +797,28 @@ def missing_schema_objects(conn):
                           WHERE p.proname = name AND p.pronamespace = 'public'::regnamespace)
     """, (list(REQUIRED_RELATIONS), list(REQUIRED_ROUTINES)))
     return [row["name"] for row in rows]
+
+
+# ---------------------------------------------------------------------
+# Trading days (hints for date prompts; the database still decides)
+# ---------------------------------------------------------------------
+def trading_day_info(conn, ticker, day):
+    """Facts about `day` for a ticker (None = the market, ^GSPC): has a price that day,
+    did ^GSPC (the market) have one, the ticker's first / last price date and the
+    nearest price dates before / after `day`."""
+    return _fetch_one(conn, """
+        WITH t AS (SELECT COALESCE(upper(btrim(%(ticker)s::text)), '^GSPC') AS ticker)
+        SELECT t.ticker,
+               EXISTS (SELECT 1 FROM daily_price dp WHERE dp.ticker = t.ticker AND dp.price_date = %(day)s)
+                   AS has_price,
+               EXISTS (SELECT 1 FROM daily_price dp WHERE dp.ticker = '^GSPC' AND dp.price_date = %(day)s)
+                   AS market_open,
+               EXISTS (SELECT 1 FROM daily_price dp WHERE dp.ticker = '^GSPC') AS market_known,
+               (SELECT min(price_date) FROM daily_price dp WHERE dp.ticker = t.ticker) AS first,
+               (SELECT max(price_date) FROM daily_price dp WHERE dp.ticker = t.ticker) AS last,
+               (SELECT max(price_date) FROM daily_price dp
+                 WHERE dp.ticker = t.ticker AND dp.price_date < %(day)s) AS before,
+               (SELECT min(price_date) FROM daily_price dp
+                 WHERE dp.ticker = t.ticker AND dp.price_date > %(day)s) AS after
+        FROM t
+    """, {"ticker": ticker, "day": day})

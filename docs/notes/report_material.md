@@ -147,6 +147,22 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - **The package is built from committed files only** (`git archive` of HEAD minus `analytics_cpp/`, `CLAUDE.md` (the AI assistant's working notes) and `docs/` except `docs/app_design.md` (the study notes stay in the repository)), so secrets and generated files (`.env`, `logs/`, `charts/`, `__pycache__`) can't get in, and a scan confirmed it.
 - Honest scope: tested on Windows 11 + WSL 2 (Ubuntu 24.04). The native Windows and macOS instructions follow the official installers but were not run.
 
+### Native-Windows test and setup wizard
+- **Tested on native Windows 11** (Miniforge Prompt, PostgreSQL 18.6) from the zip: environment, restore (1,155 trades), app, reports and charts all worked. The dump made with PostgreSQL 16 restores into 18. Findings: the doubled folder after "Extract All", a port conflict with PostgreSQL in WSL, too many manual steps, the no-price date flow, and opening charts only in WSL. All were fixed.
+- **Setup wizard (`setup.bat` / `./setup.sh` → `python -m setup`):**
+  - it tests the connection **immediately** and asks again on failure
+  - it shows "Connected to PostgreSQL 18.6 on localhost:5432 as postgres."
+  - **version gate** ≥ 16 (`server_version_num`), before anything is changed
+  - the password is typed hidden (getpass) and **never printed**; `.env` values are single-quoted, so python-dotenv takes them literally
+  - it creates the database, and **never restores into a database that has tables** (the app's schema → "already restored"; other tables → refused)
+  - it asks before overwriting `.env`
+  - it doesn't install PostgreSQL or Miniforge
+
+  `setup.sh` was tested end to end in WSL; `setup.bat` is written but not yet tested on Windows.
+- **Bug found while testing the wizard:** the dump's `set_config('search_path', '', false)` empties the search path for the rest of the **session**, so queries on the same connection after a restore failed. `restore_dump` now resets it. `verify-dump` never saw it because it uses new connections.
+- **Trading-day hints:** a date without a price is asked again at once, with the reason (weekend / after the last price / before the first / market holiday, detected because ^GSPC has no price either / missing for this stock only) and the nearest trading days. Hints only: the database still refuses a date without a price.
+- **Opening charts:** WSL (explorer.exe), native Windows (`os.startfile`) and macOS (`open`).
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
@@ -168,6 +184,7 @@ Every step that makes a design decision or finds a limitation adds a line here.
 - CSV import: the Windows-path conversion assumes WSL's default mount root `/mnt`; files must be comma-separated (Excel in some locales saves `;`); at most 1,000 rows per file.
 - Rebalancing uses whole shares, so each target is met only to within one share's value (shown as drift). Expensive shares in a small portfolio drift more.
 - Telling "database does not exist" from other connection failures relies on the server's English message text (connection errors have no SQLSTATE); with a non-English server locale it would fall back to the general "can't connect" advice.
+- `setup.bat` has not been run on Windows yet (written to the same steps as the tested `setup.sh`); macOS is untested.
 - The CLI app has no login or password: "choose investor" acts as the login (a stated simplification).
 - Identity sequences aren't rolled back with a transaction, so the rolled-back tests use up ids (e.g. the next investor in the test DB is 35, not 1). This is harmless: ids are only unique, not consecutive.
 - Sector allocation percentages are rounded per row, so a portfolio's rows sum to 100 ± 0.02 (seen on real data); market values are exact.

@@ -233,6 +233,15 @@ Done so far:
   requirements.txt the same for pip. `make package` -> cheng_project.zip (git archive of HEAD minus
   analytics_cpp/, CLAUDE.md and docs/ except docs/app_design.md (DECIDED: excluded; file list =
   git ls-tree HEAD | grep -v ... + docs/app_design.md); git-ignored; warns on uncommitted changes).
+- Windows test fixes (2026-11-08; user's Windows: PostgreSQL 18.6, native, Miniforge Prompt): setup wizard
+  setup.sh / setup.bat (call conda; --no-capture-output) -> python -m setup (setup/wizard.py: per-platform
+  defaults, getpass, test connection + re-ask, "Connected to PostgreSQL X on host:port as user.", version
+  >= 16 gate, .env single-quoted values, CREATE DATABASE via sql.Identifier, never restore into tables,
+  ask before overwriting .env). db/restore.py (restore_dump + RESET search_path; python -m db.restore;
+  db/tests/restore_without_psql.py is a wrapper). app/trading_days.py + da.trading_day_info +
+  common.ask_trading_date (Buy/Sell per ticker, Rebalance via ^GSPC; re-ask with reason + nearest days).
+  charts.can_open_charts / open_chart (WSL explorer.exe, Windows os.startfile, macOS open).
+  setup.bat written but NOT yet tested on Windows (say so until the user confirms).
 Next: final report (docs/notes/report_material.md) + video; right before upload: make dump &&
 make verify-dump, commit, make package
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them

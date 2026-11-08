@@ -10,19 +10,43 @@ constraints, triggers and procedures.
   views, functions, procedures, triggers, indexes)
 - App: `app/` (run with `python -m app`); design: `docs/app_design.md`
 
-## Tested platform (and what is not tested)
+## Quick start (setup wizard)
+
+1. Install **PostgreSQL 16 or newer** (https://www.postgresql.org/download/; on Windows remember the
+   password of the `postgres` user) and **Miniforge** (https://github.com/conda-forge/miniforge).
+2. Unzip `cheng_project.zip` (or `git clone` the repository). Windows "Extract All" creates a
+   doubled folder `cheng_project\cheng_project`: open the **inner** one, the folder that contains
+   `README.md` and `setup.bat`.
+3. Run the setup wizard from that folder:
+   - **Windows:** open the **Miniforge Prompt**, `cd` to the folder, run `setup.bat`
+   - **macOS / Linux / WSL:** in a terminal in the folder, run `./setup.sh`
+
+   It creates the conda environment `spt` (if missing), asks for the PostgreSQL connection (with
+   defaults for your platform; the password is typed hidden), tests it right away (asks again if it
+   fails), checks the server version, writes `.env`, creates the database, restores the dump,
+   shows the row counts (1,155 trades) and offers to start the app. It never restores into a
+   database that already has tables, and asks before overwriting an existing `.env`.
+   It does **not** install PostgreSQL or Miniforge.
+4. Later: `conda activate spt` then `python -m app`.
+
+The manual steps below (sections 1 to 6) do the same by hand and are the fallback.
+To restore the dump alone (reads `.env`): `python -m db.restore`.
+
+## Tested platforms (and what is not tested)
 
 | Platform | Status |
 |---|---|
-| **Windows 11 + WSL 2, Ubuntu 24.04**, PostgreSQL 16.15, conda 26.1 (Miniforge), Python 3.12.14 | **Tested**: every step below was run on a clean clone by following this README |
-| Windows (native, without WSL) | Instructions written, **not tested** |
+| **Windows 11, native** (Miniforge Prompt, PostgreSQL **18.6**, the zip) | **Manual steps tested** (environment, restore 1,155 trades, app, reports, charts); `setup.bat` written but **not yet tested on Windows** |
+| **Windows 11 + WSL 2, Ubuntu 24.04**, PostgreSQL 16.15, conda 26.1 (Miniforge), Python 3.12.14 | **Tested**: the manual steps on a clean clone, and `setup.sh` end to end |
 | macOS | Instructions written, **not tested** |
+
+The dump was made with PostgreSQL 16 and restores into PostgreSQL 18 as well (tested on Windows).
 
 ## 1. Install the prerequisites (download pages)
 
 | Software | Required | Tested | Download | Needed for |
 |---|---|---|---|---|
-| PostgreSQL | 16 or newer | 16.15 | https://www.postgresql.org/download/ | the database (server + `psql` / `createdb`) |
+| PostgreSQL | 16 or newer | 16.15 (WSL), 18.6 (Windows) | https://www.postgresql.org/download/ | the database (server + `psql` / `createdb`) |
 | Miniforge (conda) | any recent | conda 26.1.0 | https://github.com/conda-forge/miniforge | Python 3.12 + the libraries (recommended) |
 | *or* Python | 3.12 | 3.12.14 | https://www.python.org/downloads/ | if you use `pip` + `venv` instead of conda |
 | Git | any | 2.43.0 | https://git-scm.com/downloads | getting the code (not needed if you use the zip) |
@@ -43,6 +67,10 @@ Then install Miniforge (download page above; `bash Miniforge3-Linux-x86_64.sh`, 
 password you give the `postgres` user. Its tools are in `C:\Program Files\PostgreSQL\<version>\bin`
 (add that folder to PATH, or use the full path). Install Miniforge, then use the **Miniforge Prompt** for
 all commands below. `make` is not available on Windows; every command is also given without it.
+**Port conflict:** if PostgreSQL also runs inside WSL on port 5432, the Windows server conflicts with
+it. Stop one of them (WSL: `sudo service postgresql stop`; Windows: Services > postgresql-x64-18 >
+Stop, or set it to Manual), or install the Windows server on another port (e.g. 5433) and use that
+port in `.env` / the wizard.
 
 **macOS (untested):** `brew install postgresql@16 git` then `brew services start postgresql@16`
 (Homebrew: https://brew.sh). Your macOS user becomes a database user without a password.
@@ -52,8 +80,8 @@ Install Miniforge.
 
 | | Linux / WSL (Ubuntu, tested) | Windows, native (untested) | macOS, Homebrew (untested) |
 |---|---|---|---|
-| PostgreSQL programs (`psql`, `createdb`, ...) | `/usr/lib/postgresql/16/bin`; `apt` puts `psql` / `createdb` on PATH (`/usr/bin`) for you | `C:\Program Files\PostgreSQL\16\bin`: **not** on PATH by default; **add it to PATH** (Settings > System > About > Advanced system settings > Environment Variables > Path > New), or type the full path | `/opt/homebrew/opt/postgresql@16/bin` (Apple silicon) or `/usr/local/opt/postgresql@16/bin` (Intel): **not** on PATH (Homebrew installs `postgresql@16` "keg-only"); add it: `echo 'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc` |
-| PostgreSQL data (created by the installer; you never edit it) | `/var/lib/postgresql/16/main` | `C:\Program Files\PostgreSQL\16\data` | `/opt/homebrew/var/postgresql@16` |
+| PostgreSQL programs (`psql`, `createdb`, ...) | `/usr/lib/postgresql/16/bin`; `apt` puts `psql` / `createdb` on PATH (`/usr/bin`) for you | `C:\Program Files\PostgreSQL\18\bin` (the folder is your version, e.g. `16`, `17`, `18`): **not** on PATH by default; **add it to PATH** (Settings > System > About > Advanced system settings > Environment Variables > Path > New), or type the full path | `/opt/homebrew/opt/postgresql@16/bin` (Apple silicon) or `/usr/local/opt/postgresql@16/bin` (Intel): **not** on PATH (Homebrew installs `postgresql@16` "keg-only"); add it: `echo 'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc` |
+| PostgreSQL data (created by the installer; you never edit it) | `/var/lib/postgresql/16/main` | `C:\Program Files\PostgreSQL\18\data` | `/opt/homebrew/var/postgresql@16` |
 | Miniforge | `~/miniforge3` (e.g. `/home/<you>/miniforge3`) | `C:\Users\<you>\miniforge3` | `~/miniforge3` |
 | The `spt` environment (step 3) | `~/miniforge3/envs/spt` | `C:\Users\<you>\miniforge3\envs\spt` | `~/miniforge3/envs/spt` |
 | The project folder (step 2) | anywhere you like, e.g. `~/projects/Stock-Portfolio-tracker` (tested at `/home/<you>/projects/5200/Stock-Portfolio-tracker`); in WSL keep it on the Linux side, not under `/mnt/c` | anywhere, e.g. `C:\Users\<you>\projects\cheng_project` (a path without spaces is easiest) | anywhere, e.g. `~/projects/cheng_project` |
@@ -66,7 +94,9 @@ The app itself connects through the Python driver and does not need them on PATH
 git clone https://github.com/yumocheng970/Stock-Portfolio-tracker.git
 cd Stock-Portfolio-tracker
 ```
-(or unzip `cheng_project.zip` and `cd cheng_project`). **Run every command below from this folder.**
+(or unzip `cheng_project.zip` and `cd cheng_project`; Windows "Extract All" makes a doubled folder
+`cheng_project\cheng_project`: use the inner one, which contains `README.md`).
+**Run every command below from this folder.**
 
 ## 3. Create the Python environment
 
@@ -139,6 +169,13 @@ createdb -h localhost -U postgres portfolio_tracker
 psql -h localhost -U postgres -v ON_ERROR_STOP=1 --single-transaction -d portfolio_tracker -f db/dump/cheng_final_project.sql
 ```
 
+### Option 1b: without psql (Python only)
+Uses the connection in `.env` (`DB_NAME` must be an existing, **empty** database; it refuses a
+database that already has tables):
+```bash
+python -m db.restore
+```
+
 ### Option 2: DBeaver (GUI)
 1. In the Database Navigator, right-click the connection > **Create** > **Database**, name it
    `portfolio_tracker` (an empty database), then select it.
@@ -181,7 +218,7 @@ database you are connected to.
 ## 8. If the app doesn't start
 | The app says | Exit code | What to do |
 |---|---|---|
-| `Can't connect to PostgreSQL (...)` | 2 | Start the server (WSL: `sudo service postgresql start`); check `DB_HOST` / `DB_PORT` / `DB_USER` in `.env` (template: `.env.example`) |
+| `Can't connect to PostgreSQL (...)` | 2 | Start the server (WSL: `sudo service postgresql start`); check `DB_HOST` / `DB_PORT` / `DB_USER` in `.env` (template: `.env.example`); on Windows with WSL, check the port conflict note in section 1 |
 | `The database 'X' doesn't exist` | 3 | `createdb X`, then restore the dump (section 5) |
 | `The database 'X' has no app tables ... the dump hasn't been restored` | 4 | Restore the dump into it (section 5) |
 

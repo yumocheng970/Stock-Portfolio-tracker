@@ -14,7 +14,7 @@ from app.errors import safe_call
 from app import csv_import, rebalance
 from app.inputs import ask_decimal, ask_int, ask_text, ask_yes_no, confirm_typed, pause
 from app.menu import run_menu
-from app.menus.common import ask_event_date, ask_ticker
+from app.menus.common import ask_event_date, ask_ticker, ask_trading_date
 from app.menus.reports_menu import reports_menu
 from app.menus.trade_history_menu import trade_history_menu
 
@@ -150,12 +150,11 @@ def trade(session, trade_type):
         print("  Cancelled.")
         return
     shares = ask_int("Shares", minimum=1)
-    day = ask_event_date(session, "Trade date", session.portfolio_id)
+    # A date without a price for this ticker is asked again (with the reason)
+    day = ask_trading_date(session, "Trade date", ticker, session.portfolio_id)
     ok, prices = safe_call(da.price_on, session.conn, ticker, day)
     if ok and prices is not None:
         print(f"  {day}: low {prices['low']}, high {prices['high']}, close {prices['close']}")
-    elif ok:
-        print(f"  (no price for {ticker} on {day})")
     price = ask_decimal("Price (Enter = that day's close)", required=False)
 
     ok, row = safe_call(da.execute_trade, session.conn, session.portfolio_id,
@@ -261,7 +260,9 @@ def rebalance_portfolio(session):
     print("\nRebalance to target percentages of the portfolio's total value.")
     print("  Held tickers you leave out are kept as they are; a target of 0 sells all.")
     print("  The rest is the cash target. Trades are whole shares at the chosen day's close.")
-    day = ask_event_date(session, "Date (valuation and trades)", session.portfolio_id)
+    # ticker None: the date is checked against the market (^GSPC); a missing price
+    # for one target ticker is still caught by the database (all or nothing)
+    day = ask_trading_date(session, "Date (valuation and trades)", None, session.portfolio_id)
 
     ok, cash_row = safe_call(da.cash_summary, session.conn, session.portfolio_id)
     ok2, holdings_rows = safe_call(da.open_holdings, session.conn, session.portfolio_id)

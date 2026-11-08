@@ -12,6 +12,7 @@ import csv
 import os
 import platform
 import subprocess
+import sys
 from decimal import Decimal
 from pathlib import Path
 
@@ -129,7 +130,7 @@ def save_movers_chart(rows, start, end, out_dir=None):
 
 
 # ---------------------------------------------------------------------
-# Opening a saved file in Windows (WSL only)
+# Opening a saved chart: Windows, macOS, WSL (plain Linux: not offered)
 # ---------------------------------------------------------------------
 def is_wsl():
     """True when Python runs inside WSL (Linux on Windows)."""
@@ -142,3 +143,20 @@ def open_in_windows(path):
     windows_path = subprocess.run(["wslpath", "-w", str(path)], capture_output=True,
                                   text=True, check=True).stdout.strip()
     subprocess.run(["explorer.exe", windows_path], check=False)     # explorer.exe exits with 1 even on success
+
+
+def can_open_charts():
+    """True where the app knows how to open a PNG with the system's viewer."""
+    return is_wsl() or sys.platform in ("win32", "darwin")
+
+
+def open_chart(path):
+    """Open the PNG with the system's default program:
+    WSL -> explorer.exe (via open_in_windows), native Windows -> os.startfile
+    (like a double-click), macOS -> the `open` command."""
+    if is_wsl():
+        open_in_windows(path)
+    elif sys.platform == "win32":
+        os.startfile(str(path))                  # exists only on Windows
+    elif sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
