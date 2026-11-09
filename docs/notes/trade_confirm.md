@@ -119,3 +119,30 @@ Existing tests changed:
 - No other test changed.
 
 Checked read-only on the real DB: portfolio 3 → "SELL 37 NVDA @ 221.97 on 2026-10-21".
+
+---
+
+## Follow-up 2: Deposit / Withdraw confirm / 存取款确认
+After the amount and the date, the app shows a preview and asks to confirm (Enter = No → "Cancelled, nothing saved."):
+```
+  DEPOSIT 5,000.00 on 2026-11-06. Cash after: 105,000.00.
+  Cash transactions can't be edited or deleted later.
+  Confirm? (y/N):
+```
+- **The functions:** `trade_preview.cash_preview_text(txn_type, amount, day, cash)` builds the preview line: a DEPOSIT adds the amount, a WITHDRAWAL subtracts it. The final sentence is the constant `CASH_FINAL_NOTE`.
+- **Why confirm here:** for cash this step matters even more than for trades. `trg_cash_txn_immutable` blocks UPDATE and DELETE, so a wrong amount can only be fixed with an opposite transaction.
+- **Hint only:** a withdrawal above the cash shows "Cash after: -0.01." and can be confirmed, and `trg_cash_never_negative` refuses it.
+- **The short note before the amount prompt is kept** ("Note: cash transactions can't be edited or deleted later; a mistake is fixed with an opposite transaction.").
+
+中文：
+- 输入金额和日期后，先显示预览与"现金交易之后不能修改或删除"，再问 "Confirm? (y/N)"，默认 No。
+- 因为现金交易不可修改、不可删除（触发器 `trg_cash_txn_immutable`），确认这一步比交易更重要。
+- 取款超过现金时，预览会显示负数，但仍由数据库拒绝。
+
+**Tests added** (`tests/test_trade_confirm.py`, 8 tests):
+- the preview text
+- y saves, for Deposit and for Withdraw
+- n and Enter save nothing, for both
+- a withdrawal above the cash is refused by the DB after "y"
+
+**Existing tests changed:** none. No existing test deposited or withdrew through the menu; every one of them calls `da.record_cash_transaction` directly (checked with grep).

@@ -218,6 +218,16 @@ def cash(session, txn_type):
     show_context(session)
     amount = ask_decimal("Amount")
     day = ask_event_date(session, "Date", session.portfolio_id)
+    ok, cash_row = safe_call(da.cash_summary, session.conn, session.portfolio_id)
+    if ok and cash_row is not None:
+        print("\n  " + trade_preview.cash_preview_text(txn_type, amount, day, cash_row["cash_balance"]))
+    else:
+        print(f"\n  {txn_type} {format_value(amount)} on {day}.")
+    print("  " + trade_preview.CASH_FINAL_NOTE)
+    if not ask_yes_no("  Confirm?"):
+        print("  Cancelled, nothing saved.")
+        pause()
+        return
     ok, txn_id = safe_call(da.record_cash_transaction, session.conn, session.portfolio_id,
                            txn_type, amount, day)
     if ok:

@@ -12,7 +12,8 @@ from app import data_access as da
 from app.menus import portfolio_menu
 from app.session import Session
 from app.trade_preview import (CONCENTRATION_WARNING_PCT, concentration_after_buy,
-                               concentration_warning, not_enough_cash, preview_text)
+                               concentration_warning, not_enough_cash, preview_text,
+                               cash_preview_text)
 
 D1 = date(2025, 3, 3)
 
@@ -198,3 +199,50 @@ def test_allowed_date_source_latest_trade_and_cash(pf, monkeypatch, capsys):
     da.record_cash_transaction(conn, pid, "DEPOSIT", Decimal("5000"), D2)
     assert allowed_line(session, monkeypatch, capsys) == \
         "  New events must be dated on or after 2025-03-04 (the latest event: DEPOSIT 5,000.00 on 2025-03-04)."
+
+
+# ---------------------------------------------------------------------
+# Deposit / Withdraw confirm
+# ---------------------------------------------------------------------
+def cash_count(conn, pid):
+    return conn.execute("SELECT count(*) FROM cash_transaction WHERE portfolio_id = %s", (pid,)).fetchone()[0]
+
+
+def test_cash_preview_text():
+    assert cash_preview_text("DEPOSIT", Decimal("5000"), date(2026, 11, 6), Decimal("100000")) == \
+        "DEPOSIT 5,000.00 on 2026-11-06. Cash after: 105,000.00."
+    assert cash_preview_text("WITHDRAWAL", Decimal("250.5"), D1, Decimal("1000")) == \
+        "WITHDRAWAL 250.50 on 2025-03-03. Cash after: 749.50."
+
+
+@pytest.mark.parametrize("txn_type, cash_after", [("DEPOSIT", "14,000.00"), ("WITHDRAWAL", "4,000.00")])
+def test_cash_confirmed_saves(pf, monkeypatch, capsys, txn_type, cash_after):
+    conn, pid, session = pf
+    prompts = recording_input(monkeypatch, ["5000", "", "y", ""])         # amount, date, confirm, pause
+    portfolio_menu.cash(session, txn_type)
+    out = capsys.readouterr().out
+    assert f"{txn_type} 5,000.00 on 2025-03-03. Cash after: {cash_after}." in out
+    assert "Cash transactions can't be edited or deleted later." in out
+    assert any(p.startswith("  Confirm? (y/N)") for p in prompts)
+    assert ("Deposited" if txn_type == "DEPOSIT" else "Withdrew") + " 5,000.00 on 2025-03-03" in out
+    assert cash_count(conn, pid) == 1
+
+
+@pytest.mark.parametrize("txn_type", ["DEPOSIT", "WITHDRAWAL"])
+@pytest.mark.parametrize("answer", ["n", ""])                              # "n" and Enter (default No)
+def test_cash_declined_saves_nothing(pf, monkeypatch, capsys, txn_type, answer):
+    conn, pid, session = pf
+    fake_input(monkeypatch, ["5000", "", answer, ""])
+    portfolio_menu.cash(session, txn_type)
+    out = capsys.readouterr().out
+    assert "Cancelled, nothing saved." in out and "Deposited" not in out and "Withdrew" not in out
+    assert cash_count(conn, pid) == 0
+
+
+def test_withdrawal_above_cash_is_still_refused_by_the_database(pf, monkeypatch, capsys):
+    conn, pid, session = pf
+    fake_input(monkeypatch, ["9000.01", "", "y", ""])                     # cash is 9,000
+    portfolio_menu.cash(session, "WITHDRAWAL")
+    out = capsys.readouterr().out
+    assert "Cash after: -0.01." in out and "Withdrew" not in out
+    assert cash_count(conn, pid) == 0

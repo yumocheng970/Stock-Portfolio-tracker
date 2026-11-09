@@ -1,4 +1,5 @@
-"""The preview before a Buy or Sell is saved, and the concentration warning.
+"""The preview before a Buy / Sell / Deposit / Withdraw is saved, and the Buy
+concentration warning.
 Pure Python (no database, no input), so it can be tested with exact numbers.
 
 Hints only: the database still decides (cash, shares, price range, dates).
@@ -34,6 +35,15 @@ def preview_text(trade_type, shares, ticker, price, day, cash):
     amount = trade_amount(shares, price)
     return (f"{trade_type} {shares} {ticker} @ {format_value(round2(price))} on {day} = "
             f"{format_value(amount)}. Cash after: {format_value(cash_after(cash, trade_type, amount))}.")
+
+
+CASH_FINAL_NOTE = "Cash transactions can't be edited or deleted later."
+
+
+def cash_preview_text(txn_type, amount, day, cash):
+    """'DEPOSIT 5,000.00 on 2026-11-06. Cash after: 105,000.00.' (a WITHDRAWAL subtracts)."""
+    after = cash + amount if txn_type == "DEPOSIT" else cash - amount
+    return f"{txn_type} {format_value(amount)} on {day}. Cash after: {format_value(after)}."
 
 
 def not_enough_cash(cash, shares, price):

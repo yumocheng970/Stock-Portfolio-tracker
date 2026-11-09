@@ -259,6 +259,7 @@ Done so far:
   Cash after < 0 -> "Not enough cash ... (you have X)" replaces the warning, "Confirm anyway?".
   da.trade_context also returns the latest event (replay order) -> show_context prints
   "New events must be dated on or after D (the latest event: ... / the portfolio's start date)".
+  Deposit/Withdraw: preview (trade_preview.cash_preview_text + CASH_FINAL_NOTE) + "Confirm? (y/N)".
 Next: final report (docs/notes/report_material.md) + video; right before upload: make dump &&
 make verify-dump, commit, make package
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
