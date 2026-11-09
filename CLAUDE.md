@@ -252,6 +252,10 @@ Done so far:
   two per line); common.match_company (da.search_company, ILIKE, escaped): 1 match -> confirm,
   several -> list. ask_ticker(session, allow_index, held_only): Sell = held_only. Rebalance targets:
   "?" + resolve_target_names; admin ask_existing_stock: "?" (all) + names. Hints only.
+- Trade confirm (2026-11-09): Buy/Sell show a preview (app/trade_preview.py, pure: preview_text,
+  concentration_after_buy, concentration_warning) + "Confirm? (y/N)" (Enter = No -> "Cancelled, nothing
+  saved"). Buy only: warning if one ticker > CONCENTRATION_WARNING_PCT (40) of holdings + cash at the trade
+  day's closes (da.open_holdings + da.latest_closes); never blocks. Menu tests that buy/sell need a "y".
 Next: final report (docs/notes/report_material.md) + video; right before upload: make dump &&
 make verify-dump, commit, make package
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them

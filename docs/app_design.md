@@ -26,6 +26,7 @@ Side modules:
 - **Unexpected errors (bugs) are caught in one place, `run_menu`**, which every menu action passes through (`app/error_log.py`). They are logged with a short id and the full traceback to `logs/app.log`, any open transaction is rolled back, and the user sees "Something went wrong … (error 3f9a1c)" and the same menu again. Ctrl+C / Ctrl+D still exit. `APP_DEBUG=1` also prints the traceback.
 - **Startup check:** can't connect → exit 2, database missing → exit 3, schema missing (dump not restored) → exit 4, each with instructions.
 - **Errors are mapped by name.** Every constraint and trigger error has a name (`chk_…`, `fk_…`, `uq_…`, `trg_…`, `exec_…`). `errors.MESSAGES` has a message for every name in the database, and a test reads the catalog, so a new constraint without a message fails the tests.
+- **Trades are confirmed with y/N after a preview** (Buy / Sell, CSV import, Rebalance); Enter = No.
 - **Deletes need a typed confirmation.** The user types the record's email or name, not "y". Before asking, the app shows what the delete will cascade to.
 
 ## 2. CRUD matrix
@@ -67,6 +68,13 @@ Items that aren't built yet print "coming in a later step".
 Portfolios (App 2): List my portfolios / Create portfolio / Choose portfolio → **Portfolio home**:
 1 Summary, 2 Buy, 3 Sell, 4 Trade history, 5 Reports, 6 Deposit cash, 7 Withdraw cash,
 8 Rename portfolio, 9 Delete portfolio.
+
+Buy / Sell (Portfolio home → 2 / 3): ticker, shares, trade date, price (Enter = that day's close), then a
+**preview and "Confirm? (y/N)"** (default No: "Cancelled, nothing saved"): "BUY 10 AAPL @ 204.64 on
+2026-11-06 = 2,046.40. Cash after: 97,953.60." **Buy only:** if one ticker would then be more than 40 %
+of the total value (holdings + cash at that day's closes; `trade_preview.CONCENTRATION_WARNING_PCT`),
+a warning is shown before the confirm. A warning only: it never blocks. The database still decides
+after "y". (CSV import and Rebalance keep their own preview + confirm.)
 
 Market data (Main → 2): 1 Top movers, 2 List stocks (optional sector filter), 3 Price history
 (Enter = the last 30 price days). Admin (Main → 3): 1 Add a stock (downloads its prices; all or nothing),

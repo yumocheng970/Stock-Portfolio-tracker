@@ -69,7 +69,7 @@ def test_buy_reasks_the_date_before_the_price(market, monkeypatch, capsys):
     session = Session(market)
     session.choose_portfolio(pid, "Days")
     prompts = []
-    answers = iter(["TD1", "1", "2025-03-08", "", "", ""])   # ticker, shares, Saturday, Enter (=Friday), price, pause
+    answers = iter(["TD1", "1", "2025-03-08", "", "", "y", ""])   # ticker, shares, Saturday, Enter (=Friday), price, confirm, pause
     def fake_input(prompt=""):
         prompts.append(prompt)
         return next(answers)
@@ -120,8 +120,8 @@ def recording_input(monkeypatch, answers):
 
 def test_a_date_before_the_start_is_reasked_at_once(market, monkeypatch, capsys):
     session = portfolio_starting(market, D(9))           # starts Sunday 2025-03-09
-    # ticker, shares, 2025-03-03 (has a price, but before the start), Enter, price, pause
-    prompts = recording_input(monkeypatch, ["TD1", "1", "2025-03-03", "", "", ""])
+    # ticker, shares, 2025-03-03 (has a price, but before the start), Enter, price, confirm, pause
+    prompts = recording_input(monkeypatch, ["TD1", "1", "2025-03-03", "", "", "y", ""])
     portfolio_menu.trade(session, "BUY")
     out = capsys.readouterr().out
     assert "Too early: 2025-03-03 is before 2025-03-09" in out
@@ -132,7 +132,7 @@ def test_a_date_before_the_start_is_reasked_at_once(market, monkeypatch, capsys)
 
 def test_no_price_date_inside_the_range_suggests_only_allowed_days(market, monkeypatch, capsys):
     session = portfolio_starting(market, D(9))
-    prompts = recording_input(monkeypatch, ["TD1", "1", "2025-03-09", "", "", ""])   # Sunday = start day
+    prompts = recording_input(monkeypatch, ["TD1", "1", "2025-03-09", "", "", "y", ""])   # Sunday = start day; confirm
     portfolio_menu.trade(session, "BUY")
     out = capsys.readouterr().out
     assert "No price: 2025-03-09 is a Sunday" in out

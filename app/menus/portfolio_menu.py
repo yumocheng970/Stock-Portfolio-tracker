@@ -11,7 +11,7 @@ from decimal import Decimal
 from app import data_access as da
 from app.display import format_value, print_table
 from app.errors import safe_call
-from app import csv_import, rebalance
+from app import csv_import, rebalance, trade_preview
 from app.inputs import ask_decimal, ask_int, ask_text, ask_yes_no, confirm_typed, pause
 from app.menu import run_menu
 from app.menus.common import ask_event_date, ask_ticker, ask_trading_date, match_company, show_ticker_list
@@ -156,6 +156,11 @@ def trade(session, trade_type):
     if ok and prices is not None:
         print(f"  {day}: low {prices['low']}, high {prices['high']}, close {prices['close']}")
     price = ask_decimal("Price (Enter = that day's close)", required=False)
+    if not confirm_trade(session, trade_type, ticker, shares, day, price,
+                         prices["close"] if ok and prices is not None else None):
+        print("  Cancelled, nothing saved.")
+        pause()
+        return
 
     ok, row = safe_call(da.execute_trade, session.conn, session.portfolio_id,
                         ticker, trade_type, shares, day, price)
@@ -165,6 +170,38 @@ def trade(session, trade_type):
               f"on {row['trade_date']} (trade {row['trade_id']}).")
         show_cash_now(session)
     pause()
+
+
+def confirm_trade(session, trade_type, ticker, shares, day, price, close):
+    """Preview (+ the concentration warning for a BUY), then "Confirm? (y/N)".
+    Hints only: the database still decides when the trade is saved."""
+    price = price if price is not None else close
+    ok, cash_row = safe_call(da.cash_summary, session.conn, session.portfolio_id)
+    if price is None or not ok or cash_row is None:
+        # no close that day (or no cash row): nothing to compute, the database decides
+        print(f"\n  {trade_type} {shares} {ticker} on {day} at that day's close.")
+    else:
+        cash = cash_row["cash_balance"]
+        print("\n  " + trade_preview.preview_text(trade_type, shares, ticker, price, day, cash))
+        if trade_type == "BUY":
+            warning = buy_concentration_warning(session, ticker, shares, price, day, cash)
+            if warning:
+                print("  " + warning)
+    return ask_yes_no("  Confirm?")
+
+
+def buy_concentration_warning(session, ticker, shares, price, day, cash):
+    """The warning line if the ticker would be above the limit after this BUY, else None.
+    Holdings valued at the trade day's closes (latest close on or before it)."""
+    ok, rows = safe_call(da.open_holdings, session.conn, session.portfolio_id)
+    if not ok:
+        return None
+    holdings = {row["ticker"]: row["shares_held"] for row in rows}
+    ok, closes = safe_call(da.latest_closes, session.conn, set(holdings) | {ticker}, day)
+    if not ok:
+        return None
+    pct = trade_preview.concentration_after_buy(cash, holdings, closes, ticker, shares, price)
+    return trade_preview.concentration_warning(ticker, pct)
 
 
 def cash(session, txn_type):

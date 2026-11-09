@@ -169,6 +169,11 @@ Every step that makes a design decision or finds a limitation adds a line here.
 ### Ticker help at the prompts
 - Every ticker prompt accepts `?` (a list grouped by sector, one screen) and company names (case-insensitive, partial; one match → confirm, several → listed). The list depends on the context: Buy / Rebalance show stocks only, Sell shows only this portfolio's holdings with share counts, watchlists / price history / admin also show indexes. List and search share one SQL `FROM` part, so they always agree; user-typed `%` / `_` are escaped. Hints only: the database still decides.
 
+### Buy / Sell confirm step and concentration warning (from the proposal's trade flowchart)
+- **Confirm before saving:** after the price, Buy and Sell show a preview ("BUY 10 AAPL @ 204.64 on 2026-11-06 = 2,046.40. Cash after: 97,953.60.") and ask "Confirm? (y/N)"; the default is No ("Cancelled, nothing saved"). A plain y/N, not a typed confirmation: a trade can be edited, deleted or restored later (App 3), unlike a delete of a portfolio or investor.
+- **Concentration warning (Buy only):** if after the purchase one ticker would be more than 40 % of the portfolio's total value (holdings + cash at the trade day's closes), a warning line is shown before the confirm. The limit is one named constant (`trade_preview.CONCENTRATION_WARNING_PCT`). It is a warning, not a rule: it never blocks, and it is NOT in the database, because it is advice about risk, not a data-integrity rule (a 100 % single-stock portfolio is valid data). Sell has no warning (selling can only reduce the sold ticker's share).
+- **Hints only:** the preview's "Cash after" can be negative; the app still lets the user confirm and `trg_cash_never_negative` refuses it, so the cash rule stays in one place. The preview is computed from the current balance and the chosen price (Enter = that day's close), the same numbers the database uses.
+
 ## Lessons learned: known limitations (document honestly)
 
 - **trade_audit is not strict 3NF:** it's an intentional snapshot table (it copies the old trade columns, with no FKs), because history must survive the deletion of the trade or portfolio and must show values as they were.
