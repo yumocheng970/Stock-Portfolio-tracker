@@ -42,3 +42,8 @@
 **Tests / 测试:** 13 new: the catalog per kind; the format (sectors, two per line, cut names, shares); `?` for Buy (no ^GSPC), watchlist (with ^GSPC) and Sell (only held, then re-ask for an unheld ticker); the Sell menu; one match confirmed / declined; several matches listed; held-only search; wildcards literal; rebalance `?` + `apple 50`; admin by company name.
 - **Existing test changed / 修改的已有测试:** `test_app_rebalance.py::test_menu_rebalance_missing_price_message`. An unknown target ticker (`ZZZ 10`) is now caught at the targets prompt ("ZZZ is not in the stock list (type ? for the list).") instead of failing later with "No price for ZZZ …". Same inputs; only the expected message changed.
 - Totals: 343 SQL + 270 pytest. Checked read-only on the real DB: the full list is 30 lines; `nvidia` → NVDA.
+
+**Fix (2026-11-09): column alignment / 列对齐修正。**
+- **EN:** In the Buy list of a portfolio with holdings, only the held tickers had a " 34 sh" part, so the right column shifted left after a row without one (e.g. "COST … KO", "BA … CAT"). Now, if any row in the list has a share count, every entry gets the share column (`SHARES_WIDTH` = 10 characters, spaces when empty), and both columns always line up. A list without any holdings gets no extra padding.
+- **中文：** 有持仓的组合在买入列表里，只有持有的股票带 " 34 sh"，左边没有股数的那一行之后，右列会向左偏。现在只要列表里有一行带股数，每一项都留出股数这一列（10 个字符，没有股数时用空格补齐），两列总是对齐。完全没有持仓的列表不会多出空格。
+- Tests: 2 new (mixed rows line up; no padding when nothing is held). Checked read-only on the real portfolio 3.

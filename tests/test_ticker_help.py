@@ -151,3 +151,22 @@ def test_admin_finds_a_stock_by_company_name(market, monkeypatch, capsys):
     stock = admin_menu.ask_existing_stock(Session(market.conn), "delete")
     assert stock["ticker"] == "TK3"
     assert "Stocks and indexes:" in capsys.readouterr().out
+
+
+def test_columns_line_up_when_only_some_rows_hold_shares():
+    # Buy in a portfolio with holdings: held tickers show "sh", the others don't
+    rows = [{"ticker": t, "company_name": n, "sector_name": "S", "shares_held": h}
+            for t, n, h in (("COST", "Costco Wholesale Corporation", None), ("KO", "The Coca-Cola Company", 34),
+                            ("BA", "The Boeing Company", 12), ("CAT", "Caterpillar Inc.", None),
+                            ("PG", "The Procter & Gamble Company", None), ("XOM", "Exxon Mobil", None))]
+    lines = format_catalog(rows).splitlines()[1:]          # without the sector header
+    second = [line.index(right) for line, right in zip(lines, ("KO", "CAT", "XOM"))]
+    assert len(set(second)) == 1                           # the right column starts at the same place
+    assert "34 sh" in lines[0] and "12 sh" in lines[1]
+
+
+def test_no_share_column_when_nobody_holds_anything():
+    rows = [{"ticker": "A", "company_name": "Alpha", "sector_name": "S", "shares_held": None},
+            {"ticker": "B", "company_name": "Beta", "sector_name": "S", "shares_held": None}]
+    line = format_catalog(rows).splitlines()[1]
+    assert "sh" not in line and line.index("B ") == 4 + 6 + 1 + 24 + 3   # no extra padding
