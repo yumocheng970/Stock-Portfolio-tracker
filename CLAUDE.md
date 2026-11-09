@@ -257,6 +257,15 @@ make verify-dump, commit, make package
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them
   the same way as chk_/fk_/uq_ names (e.diag.constraint_name)
 
+## Before submission (routine)
+1. `make dump && make verify-dump` (must end with ALL OK), then commit the dump.
+2. Update EVERY number in README.md that depends on the dump or the data, and list what changed:
+   dump size (MB), statement and INSERT counts (DBeaver step), restore time, row counts (e.g.
+   1,155 trades, 15 investors, 26 stocks, price rows), object counts (tables / views / functions /
+   procedures / triggers), the price date range in the first paragraph, and the test counts.
+   (Find them with grep; compare with the restored DB / `make test` output.)
+3. `make test`, commit, `make package` (commit first: the zip has committed files only), push.
+
 ## Design decisions
 - Holdings and cash derived via views (v_holdings, v_cash_balance), never stored
 - Cash = starting cash + deposits - withdrawals - buys + sells
