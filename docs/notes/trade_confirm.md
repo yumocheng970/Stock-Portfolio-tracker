@@ -75,3 +75,47 @@ A portfolio that is 100 % one stock is valid data, just risky. Database rules pr
 - `test_no_price_date_inside_the_range_suggests_only_allowed_days`
 
 `test_ticker_help.py::test_sell_menu_uses_the_held_list` was not changed: it cancels at the ticker prompt, before the confirm.
+
+---
+
+## Follow-up: not enough cash, and where the allowed date comes from / 后续：现金不足提示与最早日期的来源
+
+### 1. Not enough cash (Buy) / 现金不足
+If "Cash after" would be negative, the Buy preview shows
+`Not enough cash: the database will refuse this trade (you have 9,000.00).` **instead of** the
+concentration warning (a share above 100 % would be confusing), and the question becomes
+`Confirm anyway? (y/N)`. Hint only: after "y", `trg_cash_never_negative` refuses the trade.
+`trade_preview.not_enough_cash(cash, shares, price)` returns the line or `None` (cash exactly 0 is enough).
+
+中文：若买入后现金为负，就显示 "Not enough cash…（你有 X）"，代替集中度警告（否则会出现超过 100 % 的比例，令人困惑），问题改为 "Confirm anyway? (y/N)"。这只是提示，最终仍由数据库拒绝。
+
+### 2. "New events must be dated on or after D (…)" / 最早允许日期的来源
+`da.trade_context` now also returns the latest event (`event_kind`, `event_type`, `event_date`,
+`event_ticker`, `event_shares`, `event_price`, `event_amount`). It uses the same order as the
+history replay: date, then cash before trades on the same day, then id. So when a deposit and a
+trade share the latest date, the **trade** is named. `trade_preview.allowed_date_source(context)`
+turns it into text:
+```
+  New events must be dated on or after 2026-10-21 (the latest event: SELL 37 NVDA @ 221.97 on 2026-10-21).
+  New events must be dated on or after 2025-03-04 (the latest event: DEPOSIT 5,000.00 on 2025-03-04).
+  New events must be dated on or after 2025-03-03 (the portfolio's start date).
+```
+The line is printed by `show_context`, the only place that shows it: Buy, Sell, Deposit and Withdraw.
+"Start date" is shown when there are no events, or when the start date is later than the latest event.
+
+中文：`trade_context` 现在多返回"最新事件"，顺序与触发器重放历史的顺序相同（日期 → 同日先现金后交易 → id）。同一天既有存款又有交易时，显示的是交易。没有任何事件时显示"组合的开始日期"。
+
+SQL notes / SQL 说明:
+- `LEFT JOIN LATERAL (… UNION ALL … ORDER BY … LIMIT 1) e ON true`: for each portfolio, take the one latest event. `LEFT` keeps portfolios that have no events yet (all `e.*` columns become NULL).
+- `GREATEST` ignores NULLs, so `GREATEST(start_date, NULL)` = `start_date`.
+
+**Tests added** (`tests/test_trade_confirm.py`):
+- Not enough cash: the line appears, there is no concentration warning, the prompt is "Confirm anyway?", and the DB still refuses.
+- Exactly enough cash: the plain "Confirm?".
+- The allowed-date source: start date (no events), the latest trade (including a same-day deposit, which is replayed earlier), and the latest deposit.
+
+Existing tests changed:
+- My own `test_the_database_still_decides_after_yes` from the previous step became `test_not_enough_cash_replaces_the_warning_and_the_database_still_decides`, with the same scenario and more assertions.
+- No other test changed.
+
+Checked read-only on the real DB: portfolio 3 → "SELL 37 NVDA @ 221.97 on 2026-10-21".

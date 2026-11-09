@@ -234,15 +234,29 @@ def open_holdings(conn, portfolio_id):
 # Hints shown before a trade or cash transaction (the database decides)
 # ---------------------------------------------------------------------
 def trade_context(conn, portfolio_id):
-    """Cash now, and the earliest date a new event may have (latest event or start_date)."""
+    """Cash now, the earliest date a new event may have (latest event or start_date),
+    and the latest event itself (all event_* columns NULL when there is none).
+    "Latest" uses the replay order: date, cash before trades the same day, then id."""
     return _fetch_one(conn, """
         SELECT cb.cash_balance AS cash,
-               GREATEST(p.start_date,
-                        (SELECT max(trade_date) FROM trade WHERE portfolio_id = p.portfolio_id),
-                        (SELECT max(txn_date) FROM cash_transaction WHERE portfolio_id = p.portfolio_id)
-               ) AS latest_allowed
+               GREATEST(p.start_date, e.event_date) AS latest_allowed,
+               e.kind AS event_kind, e.event_type, e.event_date,
+               e.ticker AS event_ticker, e.shares AS event_shares, e.price AS event_price,
+               e.amount AS event_amount
         FROM portfolio p
         JOIN v_cash_balance cb ON cb.portfolio_id = p.portfolio_id
+        LEFT JOIN LATERAL (
+            SELECT * FROM (
+                SELECT 'trade' AS kind, 1 AS same_day_order, t.trade_id AS id, t.trade_type AS event_type,
+                       t.trade_date AS event_date, t.ticker, t.shares, t.price, NULL::numeric AS amount
+                FROM trade t WHERE t.portfolio_id = p.portfolio_id
+                UNION ALL
+                SELECT 'cash', 0, c.cash_txn_id, c.txn_type, c.txn_date, NULL, NULL, NULL, c.amount
+                FROM cash_transaction c WHERE c.portfolio_id = p.portfolio_id
+            ) ev
+            ORDER BY ev.event_date DESC, ev.same_day_order DESC, ev.id DESC
+            LIMIT 1
+        ) e ON true
         WHERE p.portfolio_id = %s
     """, (portfolio_id,))
 

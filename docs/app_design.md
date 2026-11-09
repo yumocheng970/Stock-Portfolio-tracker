@@ -73,7 +73,10 @@ Buy / Sell (Portfolio home → 2 / 3): ticker, shares, trade date, price (Enter 
 **preview and "Confirm? (y/N)"** (default No: "Cancelled, nothing saved"): "BUY 10 AAPL @ 204.64 on
 2026-11-06 = 2,046.40. Cash after: 97,953.60." **Buy only:** if one ticker would then be more than 40 %
 of the total value (holdings + cash at that day's closes; `trade_preview.CONCENTRATION_WARNING_PCT`),
-a warning is shown before the confirm. A warning only: it never blocks. The database still decides
+a warning is shown before the confirm. A warning only: it never blocks. If the Buy would make cash
+negative, "Not enough cash: the database will refuse this trade (you have X)" replaces the warning and
+the question is "Confirm anyway? (y/N)". The context line names what sets the earliest date:
+"New events must be dated on or after D (the latest event: … / the portfolio's start date)". The database still decides
 after "y". (CSV import and Rebalance keep their own preview + confirm.)
 
 Market data (Main → 2): 1 Top movers, 2 List stocks (optional sector filter), 3 Price history

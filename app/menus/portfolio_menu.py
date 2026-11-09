@@ -136,7 +136,8 @@ def show_context(session):
     ok, context = safe_call(da.trade_context, session.conn, session.portfolio_id)
     if ok and context is not None:
         print(f"  Cash available: {format_value(context['cash'])}")
-        print(f"  New events must be dated on or after {context['latest_allowed']}.")
+        print(f"  New events must be dated on or after {context['latest_allowed']} "
+              f"({trade_preview.allowed_date_source(context)}).")
 
 
 def trade(session, trade_type):
@@ -184,6 +185,10 @@ def confirm_trade(session, trade_type, ticker, shares, day, price, close):
         cash = cash_row["cash_balance"]
         print("\n  " + trade_preview.preview_text(trade_type, shares, ticker, price, day, cash))
         if trade_type == "BUY":
+            short = trade_preview.not_enough_cash(cash, shares, price)
+            if short:            # instead of the concentration %, which would exceed 100 % here
+                print("  " + short)
+                return ask_yes_no("  Confirm anyway?")
             warning = buy_concentration_warning(session, ticker, shares, price, day, cash)
             if warning:
                 print("  " + warning)

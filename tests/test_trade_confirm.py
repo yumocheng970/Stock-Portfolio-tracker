@@ -12,7 +12,7 @@ from app import data_access as da
 from app.menus import portfolio_menu
 from app.session import Session
 from app.trade_preview import (CONCENTRATION_WARNING_PCT, concentration_after_buy,
-                               concentration_warning, preview_text)
+                               concentration_warning, not_enough_cash, preview_text)
 
 D1 = date(2025, 3, 3)
 
@@ -136,10 +136,65 @@ def test_sell_never_warns_even_when_a_holding_is_concentrated(pf, monkeypatch, c
     assert "Warning" not in out and "Sold 1 CC2" in out
 
 
-def test_the_database_still_decides_after_yes(pf, monkeypatch, capsys):
+def recording_input(monkeypatch, answers):
+    prompts, answers = [], iter(answers)
+    def fake(prompt=""):
+        prompts.append(prompt)
+        return next(answers)
+    monkeypatch.setattr("builtins.input", fake)
+    return prompts
+
+
+def test_not_enough_cash_replaces_the_warning_and_the_database_still_decides(pf, monkeypatch, capsys):
     conn, pid, session = pf
-    fake_input(monkeypatch, ["CC1", "200", "", "", "y", ""])          # 20,000 > 9,000 cash
+    prompts = recording_input(monkeypatch, ["CC1", "200", "", "", "y", ""])   # 20,000 > 9,000 cash
     portfolio_menu.trade(session, "BUY")
     out = capsys.readouterr().out
     assert "Cash after: -11,000.00." in out                            # the preview just shows it
+    assert "Not enough cash: the database will refuse this trade (you have 9,000.00)." in out
+    assert "Warning" not in out                                        # no "CC1 would be 200 %"
+    assert any(p.startswith("  Confirm anyway? (y/N)") for p in prompts)
     assert "Bought" not in out and trade_count(conn, pid) == 1        # refused by trg_cash_never_negative
+
+
+def test_enough_cash_keeps_the_plain_question(pf, monkeypatch):
+    prompts = recording_input(monkeypatch, ["CC1", "90", "", "", "n", ""])    # exactly 9,000: cash 0
+    portfolio_menu.trade(pf[2], "BUY")
+    assert any(p.startswith("  Confirm? (y/N)") for p in prompts)
+    assert not any("anyway" in p for p in prompts)
+    assert not_enough_cash(Decimal("9000"), 90, Decimal("100")) is None
+    assert not_enough_cash(Decimal("9000"), 91, Decimal("100")).endswith("(you have 9,000.00).")
+
+
+# ---------------------------------------------------------------------
+# Which event sets "New events must be dated on or after D"
+# ---------------------------------------------------------------------
+D2 = date(2025, 3, 4)
+
+
+def allowed_line(session, monkeypatch, capsys):
+    fake_input(monkeypatch, ["", "", ""])            # Buy: Enter = cancel at the ticker prompt
+    portfolio_menu.trade(session, "BUY")
+    return next(line for line in capsys.readouterr().out.splitlines() if "dated on or after" in line)
+
+
+def test_allowed_date_source_start_date(conn, monkeypatch, capsys):
+    investor = da.create_investor(conn, "Stan Start", "stan.start@example.com")
+    pid = da.create_portfolio(conn, investor, "Empty", Decimal("1000"), D1)
+    session = Session(conn)
+    session.choose_portfolio(pid, "Empty")
+    assert allowed_line(session, monkeypatch, capsys) == \
+        "  New events must be dated on or after 2025-03-03 (the portfolio's start date)."
+
+
+def test_allowed_date_source_latest_trade_and_cash(pf, monkeypatch, capsys):
+    conn, pid, session = pf
+    assert allowed_line(session, monkeypatch, capsys) == \
+        "  New events must be dated on or after 2025-03-03 (the latest event: BUY 20 CC2 @ 50.00 on 2025-03-03)."
+    # a deposit on the SAME day is replayed before the trade: the trade is still the latest
+    da.record_cash_transaction(conn, pid, "DEPOSIT", Decimal("5000"), D1)
+    assert "BUY 20 CC2 @ 50.00 on 2025-03-03" in allowed_line(session, monkeypatch, capsys)
+    conn.execute("INSERT INTO daily_price VALUES ('CC1', %s, 100, 1000, 1, 100, 0)", (D2,))
+    da.record_cash_transaction(conn, pid, "DEPOSIT", Decimal("5000"), D2)
+    assert allowed_line(session, monkeypatch, capsys) == \
+        "  New events must be dated on or after 2025-03-04 (the latest event: DEPOSIT 5,000.00 on 2025-03-04)."

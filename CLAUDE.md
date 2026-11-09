@@ -256,6 +256,9 @@ Done so far:
   concentration_after_buy, concentration_warning) + "Confirm? (y/N)" (Enter = No -> "Cancelled, nothing
   saved"). Buy only: warning if one ticker > CONCENTRATION_WARNING_PCT (40) of holdings + cash at the trade
   day's closes (da.open_holdings + da.latest_closes); never blocks. Menu tests that buy/sell need a "y".
+  Cash after < 0 -> "Not enough cash ... (you have X)" replaces the warning, "Confirm anyway?".
+  da.trade_context also returns the latest event (replay order) -> show_context prints
+  "New events must be dated on or after D (the latest event: ... / the portfolio's start date)".
 Next: final report (docs/notes/report_material.md) + video; right before upload: make dump &&
 make verify-dump, commit, make package
 - Trigger errors: ERRCODE check_violation + USING CONSTRAINT = 'trg_...' so Python maps them

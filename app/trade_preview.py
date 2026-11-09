@@ -36,6 +36,29 @@ def preview_text(trade_type, shares, ticker, price, day, cash):
             f"{format_value(amount)}. Cash after: {format_value(cash_after(cash, trade_type, amount))}.")
 
 
+def not_enough_cash(cash, shares, price):
+    """The line shown instead of the concentration warning when a BUY would make
+    cash negative, or None when the cash is enough. A hint: the database refuses it."""
+    if cash_after(cash, "BUY", trade_amount(shares, price)) >= 0:
+        return None
+    return f"Not enough cash: the database will refuse this trade (you have {format_value(cash)})."
+
+
+def allowed_date_source(context):
+    """Which event sets the earliest allowed date (da.trade_context row):
+    'the latest event: DEPOSIT 5,000.00 on 2026-10-22' / 'BUY 10 AAPL @ 204.64 on ...',
+    or "the portfolio's start date" (no events, or the start date is later)."""
+    day = context["event_date"]
+    if day is None or day < context["latest_allowed"]:
+        return "the portfolio's start date"
+    if context["event_kind"] == "trade":
+        what = (f"{context['event_type']} {context['event_shares']} {context['event_ticker']} "
+                f"@ {format_value(context['event_price'])}")
+    else:
+        what = f"{context['event_type']} {format_value(context['event_amount'])}"
+    return f"the latest event: {what} on {day}"
+
+
 def concentration_after_buy(cash, holdings, closes, ticker, shares, price):
     """The ticker's % of the total value after buying `shares` at `price`.
     holdings = {ticker: shares held now}, closes = {ticker: close on the trade day}.
