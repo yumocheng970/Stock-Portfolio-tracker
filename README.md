@@ -183,7 +183,7 @@ python -m db.restore
    `portfolio_tracker` (an empty database), then select it.
 2. **File > Open File...** and choose `db/dump/cheng_final_project.sql`. Make sure the editor uses
    that new database (the active database is shown in the editor's toolbar).
-3. **SQL Editor > Execute SQL Script** (`Alt+X`). It runs 148 statements, including 50 multi-row
+3. **SQL Editor > Execute SQL Script** (`Alt+X`). It runs about 150 statements, including 50 multi-row
    INSERTs, and takes a few seconds.
 4. Refresh the database: schema `public` has 11 tables, 2 views, 16 functions, 3 procedures, 10 triggers.
 
