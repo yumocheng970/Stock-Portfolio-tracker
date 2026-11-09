@@ -198,14 +198,9 @@ python -m app                           # uses DB_NAME from .env
 ```
 Choose a number and press Enter; **exit with 0** from the main menu. The first screen shows which
 database you are connected to.
-- Another database for one run: `DB_NAME=portfolio_tracker_test python -m app`
-  (Windows PowerShell: `$env:DB_NAME="portfolio_tracker_test"; python -m app`)
 - Read-only (browse safely, every change is refused): `make run-readonly`, or without make:
   - Linux / WSL / macOS: `PGOPTIONS="-c default_transaction_read_only=on" python -m app`
   - Windows (Miniforge Prompt): `set PGOPTIONS=-c default_transaction_read_only=on`, then `python -m app`
-- `make run` / `make run-test-db` start the app too, but Ctrl+C under make prints
-  "make: *** Interrupt". That is make reporting the interrupt, not an app error, so prefer
-  `python -m app` for demos and exit with 0.
 - Charts are saved in `charts/`, the error log in `logs/app.log` (both git-ignored).
 - Sample CSV files for "Import from CSV": `data/samples/` (see its README).
 - At any ticker prompt, type `?` for the list of tickers (grouped by sector), or type a company
@@ -216,8 +211,7 @@ database you are connected to.
   is saved and you are back at the menu.
 - An unexpected error (a bug) shows `Something went wrong. Details were saved to logs/app.log
   (error 3f9a1c).` and the menu comes back. The log has the time, the error id, the menu action
-  and the full traceback; search it for the id. `logs/` is git-ignored; the file is rotated at 1 MB
-  (3 old files kept: `app.log.1` .. `app.log.3`).
+  and the full traceback; search it for the id. `logs/` is git-ignored.
 - Debug mode prints the traceback on screen too: `APP_DEBUG=1 python -m app`
 
 ## 8. If the app doesn't start
